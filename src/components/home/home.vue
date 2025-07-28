@@ -2,7 +2,7 @@
 
 </script>
 <template>
-
+home
 </template>
 
 <style scoped>

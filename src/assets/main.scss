@@ -1,6 +1,4 @@
 @import './base.scss';
-@import 'variables';
-@import 'mixins';
 
 .app {
   display: flex;
@@ -16,7 +14,7 @@
   padding: 1rem !important;
   margin: 0.5rem !important;
 }
-
+  
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
