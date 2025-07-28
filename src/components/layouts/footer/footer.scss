@@ -1,0 +1,252 @@
+.site-footer {
+  background-color: #2d3748;
+  color: #ffffff;
+  padding: 40px 0 0;
+  font-family: 'Arial', sans-serif;
+}
+
+.footer-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px 30px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.footer-column {
+  h3.footer-title {
+    font-size: 1.2rem;
+    margin-bottom: 20px;
+    position: relative;
+    padding-bottom: 10px;
+    
+    &::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 50px;
+      height: 2px;
+      background-color: #4a6cf7;
+    }
+  }
+}
+
+.footer-text {
+  color: #a0aec0;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+
+.footer-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  
+  .contact-link {
+    color: #e2e8f0;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.3s;
+    
+    &:hover {
+      color: #4a6cf7;
+    }
+    
+    i {
+      font-size: 1.1rem;
+    }
+  }
+}
+
+.footer-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  
+  .footer-link {
+    color: #a0aec0;
+    text-decoration: none;
+    transition: color 0.3s, padding-left 0.3s;
+    display: block;
+    
+    &:hover {
+      color: #4a6cf7;
+      padding-left: 5px;
+    }
+    
+    &.router-link-exact-active {
+      color: #4a6cf7;
+      font-weight: 500;
+    }
+  }
+}
+
+.social-icons {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 25px;
+  
+  .social-icon {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.1);
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.3s;
+    
+    &:hover {
+      background-color: #4a6cf7;
+    }
+    
+    i {
+      font-size: 1.2rem;
+    }
+  }
+}
+
+.newsletter {
+  .newsletter-title {
+    font-size: 1rem;
+    margin-bottom: 15px;
+    color: #e2e8f0;
+  }
+  
+  .newsletter-form {
+    display: flex;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  
+  .newsletter-input {
+    flex-grow: 1;
+    padding: 10px 15px;
+    border: none;
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    
+    &::placeholder {
+      color: #a0aec0;
+    }
+    
+    &:focus {
+      outline: none;
+      background-color: rgba(255, 255, 255, 0.15);
+    }
+  }
+  
+  .newsletter-button {
+    background-color: #4a6cf7;
+    color: white;
+    border: none;
+    padding: 0 15px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    
+    &:hover {
+      background-color: #3a5bd9;
+    }
+    
+    i {
+      font-size: 1.2rem;
+    }
+  }
+}
+
+.footer-bottom {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  color: #a0aec0;
+  font-size: 0.9rem;
+}
+
+.footer-copyright,
+.footer-developers,
+.footer-legal {
+  flex: 1;
+  min-width: 200px;
+}
+
+.dev-link {
+  color: #4a6cf7;
+  text-decoration: none;
+  transition: opacity 0.3s;
+  
+  &:hover {
+    opacity: 0.8;
+  }
+}
+
+.footer-legal {
+  display: flex;
+  gap: 15px;
+  justify-content: flex-end;
+  
+  .legal-link {
+    color: #a0aec0;
+    text-decoration: none;
+    transition: color 0.3s;
+    
+    &:hover {
+      color: #4a6cf7;
+    }
+  }
+}
+
+/* Иконки (можно заменить на реальные иконки из шрифта или SVG) */
+[class^="icon-"]:before {
+  font-family: 'Material Icons';
+  font-style: normal;
+  font-weight: normal;
+  speak: never;
+  display: inline-block;
+  text-decoration: inherit;
+  width: 1em;
+  text-align: center;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1em;
+}
+
+.icon-phone:before { content: '\e0b0'; }
+.icon-mail:before { content: '\e158'; }
+.icon-vk:before { content: '\e189'; }
+.icon-tg:before { content: '\e1d8'; }
+.icon-yt:before { content: '\e1da'; }
+.icon-insta:before { content: '\e1dd'; }
+.icon-send:before { content: '\e163'; }
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .footer-content {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+  
+  .footer-bottom {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+  }
+  
+  .footer-legal {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}

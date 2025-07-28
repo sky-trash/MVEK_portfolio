@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../pages/HomeView.vue'
+import HomeView from '@/pages/HomeView.vue'
 import RegisterView from '@/pages/RegisterView.vue'
 import AuthView from '@/pages/AuthView.vue'
 import ProfileView from '@/pages/ProfileView.vue'
@@ -7,6 +7,11 @@ import AboutView from '@/pages/AboutView.vue'
 import StudentsView from '@/pages/StudentsView.vue'
 import TeacherView from '@/pages/TeacherView.vue'
 import ContactView from '@/pages/ContactView.vue'
+import ProjectsView from '@/pages/ProjectsView.vue'
+import StudentProfileView from '@/pages/StudentProfileView.vue'
+import TeacherProfileView from '@/pages/TeacherProfileView.vue'
+import ProjectDetailsView from '@/pages/ProjectDetailsView.vue'
+import NotFoundView from '@/pages/NotFoundView.vue' // Добавьте компонент для 404
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -16,8 +21,8 @@ const router = createRouter({
       name: 'home',
       component: HomeView,
       meta: {
-        title: 'Главаня',
-        requiresUnauth: true
+        title: 'Главная',
+        requiresAuth: false // Изменил на requiresAuth для единообразия
       }
     },
     {
@@ -26,7 +31,8 @@ const router = createRouter({
       component: RegisterView,
       meta: {
         title: 'Регистрация',
-        requiresUnauth: true
+        requiresAuth: false,
+        hideForAuth: true // Скрывать для авторизованных пользователей
       }
     },
     {
@@ -35,7 +41,8 @@ const router = createRouter({
       component: AuthView,
       meta: {
         title: 'Авторизация',
-        requiresUnauth: true
+        requiresAuth: false,
+        hideForAuth: true // Скрывать для авторизованных пользователей
       }
     },
     {
@@ -44,7 +51,7 @@ const router = createRouter({
       component: ProfileView,
       meta: {
         title: 'Профиль',
-        requiresUnauth: true
+        requiresAuth: true // Требует авторизации
       }
     },
     {
@@ -53,7 +60,7 @@ const router = createRouter({
       component: AboutView,
       meta: {
         title: 'О нас',
-        requiresUnauth: true
+        requiresAuth: false
       }
     },
     {
@@ -62,17 +69,37 @@ const router = createRouter({
       component: StudentsView,
       meta: {
         title: 'Студенты',
-        requiresUnauth: true
+        requiresAuth: false
       }
     },
     {
-      path: '/teacher',
-      name: 'teacher',
+      path: '/students/:id',
+      name: 'student-profile',
+      component: StudentProfileView,
+      meta: {
+        title: 'Профиль студента',
+        requiresAuth: false
+      },
+      props: true
+    },
+    {
+      path: '/teachers',
+      name: 'teachers', // Изменил с 'teacher' на 'teachers' для единообразия
       component: TeacherView,
       meta: {
-        title: 'Преподователи',
-        requiresUnauth: true
+        title: 'Преподаватели',
+        requiresAuth: false
       }
+    },
+    {
+      path: '/teachers/:id',
+      name: 'teacher-profile',
+      component: TeacherProfileView,
+      meta: {
+        title: 'Профиль преподавателя',
+        requiresAuth: false
+      },
+      props: true
     },
     {
       path: '/contact',
@@ -80,10 +107,51 @@ const router = createRouter({
       component: ContactView,
       meta: {
         title: 'Контакты',
-        requiresUnauth: true
+        requiresAuth: false
       }
     },
+    {
+      path: '/projects',
+      name: 'projects',
+      component: ProjectsView,
+      meta: {
+        title: 'Проекты',
+        requiresAuth: false
+      }
+    },
+    {
+      path: '/projects/:id',
+      name: 'project-details',
+      component: ProjectDetailsView,
+      meta: {
+        title: 'Детали проекта',
+        requiresAuth: false
+      },
+      props: true
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: NotFoundView,
+      meta: {
+        title: 'Страница не найдена',
+        requiresAuth: false
+      }
+    }
   ],
+  scrollBehavior(to, from, savedPosition) {
+    if (savedPosition) {
+      return savedPosition
+    } else {
+      return { top: 0 }
+    }
+  }
+})
+
+// Глобальный перехватчик для изменения title страницы
+router.beforeEach((to, from, next) => {
+  document.title = to.meta.title as string || 'Портфолио МВЕК'
+  next()
 })
 
 export default router
