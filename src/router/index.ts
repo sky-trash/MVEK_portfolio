@@ -11,7 +11,7 @@ import ProjectsView from '@/pages/ProjectsView.vue'
 import StudentProfileView from '@/pages/StudentProfileView.vue'
 import TeacherProfileView from '@/pages/TeacherProfileView.vue'
 import ProjectDetailsView from '@/pages/ProjectDetailsView.vue'
-import NotFoundView from '@/pages/NotFoundView.vue' // Добавьте компонент для 404
+import NotFoundView from '@/pages/NotFoundView.vue' 
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -84,7 +84,7 @@ const router = createRouter({
     },
     {
       path: '/teachers',
-      name: 'teachers', // Изменил с 'teacher' на 'teachers' для единообразия
+      name: 'teachers', 
       component: TeacherView,
       meta: {
         title: 'Преподаватели',

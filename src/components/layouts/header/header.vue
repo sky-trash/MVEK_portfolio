@@ -26,8 +26,8 @@ const isMobileMenuOpen = ref(false);
           <li class="nav-item">
             <router-link to="/projects" class="nav-link">Проекты</router-link>
           </li>
-          <li class="nav-item">
-            <router-link to="/teachers" class="nav-link">Преподаватели</router-link>
+          <li class="mobile-nav-item">
+            <router-link to="/teachers" class="mobile-nav-link">Преподаватели</router-link>
           </li>
         </ul>
       </nav>
@@ -39,10 +39,7 @@ const isMobileMenuOpen = ref(false);
       </div>
 
       <!-- Мобильное меню (бургер) -->
-      <button 
-        class="mobile-menu-button"
-        @click="isMobileMenuOpen = !isMobileMenuOpen"
-      >
+      <button class="mobile-menu-button" @click="isMobileMenuOpen = !isMobileMenuOpen">
         <span class="burger-line"></span>
         <span class="burger-line"></span>
         <span class="burger-line"></span>
