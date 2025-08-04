@@ -102,8 +102,8 @@ const router = createRouter({
       props: true
     },
     {
-      path: '/contact',
-      name: 'contact',
+      path: '/contacts',
+      name: 'contacts',
       component: ContactView,
       meta: {
         title: 'Контакты',

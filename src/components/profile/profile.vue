@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Header from '../layouts/header/header.vue';
+import Footer from '../layouts/footer/footer.vue';
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 
@@ -93,6 +95,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <Header/>
   <main class="profile-page">
     <div v-if="isLoading" class="loading-overlay">
       <div class="loading-spinner"></div>
@@ -238,6 +241,7 @@ onMounted(() => {
       </div>
     </div>
   </main>
+  <Footer/>
 </template>
 <style scoped>
 @import "./profile.scss";

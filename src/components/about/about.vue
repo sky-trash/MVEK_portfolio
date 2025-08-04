@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Header from '../layouts/header/header.vue';
+import Footer from '../layouts/footer/footer.vue';
 
 const collegeInfo = {
   name: "МВЕК Колледж",
@@ -122,6 +123,7 @@ const advantages = [
       </div>
     </section>
   </main>
+  <Footer/>
 </template>
 <style scoped>
 @import "./about.scss";

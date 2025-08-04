@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import Header from '../layouts/header/header.vue';
+import Footer from '../layouts/footer/footer.vue';
+import { ref, onMounted, computed } from 'vue';
 
 // Моковые данные студентов (в реальном проекте будет API-запрос)
 const students = ref([
@@ -95,6 +97,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <Header/>
   <main class="students-page">
     <div v-if="isLoading" class="loading-overlay">
       <div class="loading-spinner"></div>
@@ -172,6 +175,7 @@ onMounted(() => {
       <p>Студенты не найдены</p>
     </div>
   </main>
+  <Footer/>
 </template>
 <style scoped>
 @import "./students.scss";
