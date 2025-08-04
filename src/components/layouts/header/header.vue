@@ -26,8 +26,8 @@ const isMobileMenuOpen = ref(false);
           <li class="nav-item">
             <router-link to="/projects" class="nav-link">Проекты</router-link>
           </li>
-          <li class="mobile-nav-item">
-            <router-link to="/teachers" class="mobile-nav-link">Преподаватели</router-link>
+          <li class="nav-item">
+            <router-link to="/teachers" class="nav-link">Преподаватели</router-link>
           </li>
         </ul>
       </nav>

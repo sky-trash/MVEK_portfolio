@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Header from '../layouts/header/header.vue';
+
 const collegeInfo = {
   name: "МВЕК Колледж",
   description: "Ведущее учебное заведение в области дизайна и визуальных искусств с многолетней историей и современным подходом к образованию.",
@@ -43,6 +45,7 @@ const advantages = [
 </script>
 
 <template>
+  <Header/>
   <main class="about-page">
     <!-- Блок с основной информацией -->
     <section class="about-hero">
