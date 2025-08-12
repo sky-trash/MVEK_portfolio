@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
+import { auth } from '@/firebase'; // Импортируем auth из вашего файла
 
 const router = useRouter();
 
@@ -26,21 +28,64 @@ const handleLogin = async () => {
   errorMessage.value = '';
 
   try {
-    // Здесь будет запрос к API
-    console.log('Авторизация:', formData.value);
+    const userCredential = await signInWithEmailAndPassword(
+      auth,
+      formData.value.email,
+      formData.value.password
+    );
     
-    // Имитация задержки сети
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const token = await userCredential.user.getIdToken();
+    
+    // Сохраняем токен и email
+    const storage = formData.value.remember ? localStorage : sessionStorage;
+    storage.setItem('authToken', token);
+    storage.setItem('userEmail', formData.value.email);
     
     // Перенаправление после успешной авторизации
     router.push('/profile');
-  } catch (error) {
-    errorMessage.value = 'Ошибка авторизации. Проверьте данные и попробуйте снова.';
+    
+  } catch (error: any) {
     console.error('Auth error:', error);
+    handleAuthError(error);
   } finally {
     isLoading.value = false;
   }
 };
+
+// Обработчик ошибок авторизации
+const handleAuthError = (error: any) => {
+  switch (error.code) {
+    case 'auth/invalid-email':
+      errorMessage.value = 'Некорректный email';
+      break;
+    case 'auth/user-disabled':
+      errorMessage.value = 'Пользователь заблокирован';
+      break;
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+      errorMessage.value = 'Неверный email или пароль';
+      break;
+    case 'auth/too-many-requests':
+      errorMessage.value = 'Слишком много попыток. Попробуйте позже.';
+      break;
+    case 'auth/network-request-failed':
+      errorMessage.value = 'Ошибка сети. Проверьте подключение.';
+      break;
+    default:
+      errorMessage.value = 'Ошибка авторизации. Попробуйте снова.';
+      console.error('Unknown auth error:', error);
+  }
+};
+
+// Проверка авторизации при загрузке страницы
+onMounted(() => {
+  const unsubscribe = onAuthStateChanged(auth, (user) => {
+    if (user) {
+      router.push('/profile');
+    }
+    unsubscribe();
+  });
+});
 
 // Переход к регистрации
 const goToRegister = () => {
