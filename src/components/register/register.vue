@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage } from '@/firebase';
+import { auth, db } from '@/firebase';
 
 const router = useRouter();
 
@@ -22,15 +21,47 @@ const formData = ref({
   agreeTerms: false
 });
 
-const avatarFile = ref<File | null>(null);
-
 // Состояние загрузки и ошибок
 const isLoading = ref(false);
+const isDataLoading = ref(true);
 const errorMessage = ref('');
 
 // Списки для выбора
-const groups = ref(['ДИ-21', 'ДИ-22', 'ДИ-23', 'ДИ-24']);
-const specialties = ref(['Графический дизайн', 'Веб-дизайн', 'Промышленный дизайн', 'Дизайн интерьера']);
+const groups = ref<string[]>([]);
+const specialties = ref<string[]>([]);
+
+// Загрузка групп и специальностей из Firebase
+const loadGroupsAndSpecialties = async () => {
+  try {
+    // Загрузка групп
+    const groupsQuery = query(collection(db, 'groups'));
+    const groupsSnapshot = await getDocs(groupsQuery);
+
+    // Сортируем группы
+    groups.value = groupsSnapshot.docs
+      .map(doc => doc.data().name)
+      .sort((a, b) => {
+        const getGroupPrefix = (groupName: string) => groupName.match(/^([А-Я]+)/)?.[0] || '';
+        const getGroupNumber = (groupName: string) => groupName.match(/(\d+\.\d+)$/)?.[0] || '0.0';
+
+        const prefixA = getGroupPrefix(a);
+        const prefixB = getGroupPrefix(b);
+        if (prefixA !== prefixB) return prefixA.localeCompare(prefixB);
+        
+        return getGroupNumber(a).localeCompare(getGroupNumber(b), undefined, { numeric: true });
+      });
+
+    // Загрузка специальностей
+    const specialtiesQuery = query(collection(db, 'specialties'));
+    const specialtiesSnapshot = await getDocs(specialtiesQuery);
+    specialties.value = specialtiesSnapshot.docs.map(doc => doc.data().name);
+  } catch (error) {
+    console.error('Ошибка загрузки данных:', error);
+    errorMessage.value = 'Не удалось загрузить список групп и специальностей';
+  } finally {
+    isDataLoading.value = false;
+  }
+};
 
 // Проверка уникальности имени пользователя
 const checkLogin = async (login: string) => {
@@ -39,14 +70,6 @@ const checkLogin = async (login: string) => {
   return querySnapshot.empty;
 };
 
-// Загрузка аватара
-const handleAvatarUpload = async (userId: string, file: File) => {
-  const ref = storageRef(storage, `avatars/${userId}`);
-  await uploadBytes(ref, file);
-  return await getDownloadURL(ref);
-};
-
-// Функция регистрации
 const handleRegister = async () => {
   if (!validateForm()) return;
 
@@ -54,48 +77,43 @@ const handleRegister = async () => {
   errorMessage.value = '';
 
   try {
-    // Проверка уникальности имени пользователя
-    const isLoginAvailable = await checkLogin(formData.value.login);
-    if (!isLoginAvailable) {
-      throw new Error('Это имя пользователя уже занято');
-    }
+    // 1. Проверка логина
+    const loginAvailable = await checkLogin(formData.value.login);
+    if (!loginAvailable) throw new Error('Это имя пользователя уже занято');
 
-    // Создаем пользователя в Firebase Authentication
+    // 2. Создание пользователя
     const userCredential = await createUserWithEmailAndPassword(
       auth,
       formData.value.email,
       formData.value.password
     );
 
-    // Загружаем аватар, если он есть
-    let avatarUrl = '';
-    if (avatarFile.value) {
-      avatarUrl = await handleAvatarUpload(userCredential.user.uid, avatarFile.value);
-    }
-
-    // Сохраняем дополнительные данные пользователя в Firestore
-    await addDoc(collection(db, 'users'), {
+    // 3. Сохранение данных пользователя
+    const userData = {
       userId: userCredential.user.uid,
       login: formData.value.login,
       email: formData.value.email,
       group: formData.value.group,
       specialty: formData.value.specialty,
-      avatarUrl: avatarUrl,
-      role: 'student', // По умолчанию все новые пользователи - студенты
+      avatarUrl: '', // Пустая строка вместо аватара
+      role: 'student',
       name: formData.value.name,
       surname: formData.value.surname,
-      lname: '',
+      lname: formData.value.lname,
       createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+      updatedAt: new Date()
+    };
 
-    // Отправляем email для подтверждения
+    await addDoc(collection(db, 'users'), userData);
+
+    // 4. Отправка подтверждения
     await sendEmailVerification(userCredential.user);
 
-    // Перенаправление после успешной регистрации
+    // 5. Успешное завершение
     router.push('/profile');
-  } catch (error: any) {
-    console.error('Registration error:', error);
+
+  } catch (error) {
+    console.error('Ошибка регистрации:', error);
     handleFirebaseError(error);
   } finally {
     isLoading.value = false;
@@ -125,6 +143,11 @@ const validateForm = () => {
     return false;
   }
 
+  if (!formData.value.group || !formData.value.specialty) {
+    errorMessage.value = 'Выберите группу и специальность';
+    return false;
+  }
+
   return true;
 };
 
@@ -151,18 +174,15 @@ const handleFirebaseError = (error: any) => {
   }
 };
 
-// Обработка загрузки аватара
-const handleAvatarChange = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  if (target.files && target.files[0]) {
-    avatarFile.value = target.files[0];
-  }
-};
-
 // Переход к авторизации
 const goToLogin = () => {
   router.push('/auth');
 };
+
+// Загружаем данные при монтировании компонента
+onMounted(() => {
+  loadGroupsAndSpecialties();
+});
 </script>
 
 <template>
@@ -184,8 +204,8 @@ const goToLogin = () => {
           <div class="form-row">
             <div class="form-group">
               <label for="name" class="form-label">Имя*</label>
-              <input v-model="formData.name" type="text" id="name" class="form-input"
-                placeholder="Введите ваше имя" required />
+              <input v-model="formData.name" type="text" id="name" class="form-input" placeholder="Введите ваше имя"
+                required />
             </div>
 
             <div class="form-group">
@@ -217,9 +237,11 @@ const goToLogin = () => {
 
           <div class="form-row">
             <div class="form-group">
-              <label for="group" class="form-label">Группа</label>
-              <select v-model="formData.group" id="group" class="form-input">
-                <option value="" disabled selected>Выберите группу</option>
+              <label for="group" class="form-label">Группа*</label>
+              <select v-model="formData.group" id="group" class="form-input" :disabled="isDataLoading" required>
+                <option value="" disabled selected>
+                  {{ isDataLoading ? 'Загрузка...' : 'Выберите группу' }}
+                </option>
                 <option v-for="group in groups" :key="group" :value="group">
                   {{ group }}
                 </option>
@@ -227,9 +249,11 @@ const goToLogin = () => {
             </div>
 
             <div class="form-group">
-              <label for="specialty" class="form-label">Специальность</label>
-              <select v-model="formData.specialty" id="specialty" class="form-input">
-                <option value="" disabled selected>Выберите специальность</option>
+              <label for="specialty" class="form-label">Специальность*</label>
+              <select v-model="formData.specialty" id="specialty" class="form-input" :disabled="isDataLoading" required>
+                <option value="" disabled selected>
+                  {{ isDataLoading ? 'Загрузка...' : 'Выберите специальность' }}
+                </option>
                 <option v-for="specialty in specialties" :key="specialty" :value="specialty">
                   {{ specialty }}
                 </option>
@@ -238,8 +262,9 @@ const goToLogin = () => {
           </div>
 
           <div class="form-group">
-            <label for="avatar" class="form-label">Аватар</label>
-            <input type="file" id="avatar" accept="image/*" @change="handleAvatarChange" class="form-input" />
+            <label for="lname" class="form-label">Отчество</label>
+            <input v-model="formData.lname" type="text" id="lname" class="form-input"
+              placeholder="Введите ваше отчество" />
           </div>
 
           <div class="form-options">
@@ -281,6 +306,7 @@ const goToLogin = () => {
     </div>
   </main>
 </template>
+
 <style scoped>
 @import "./register.scss";
 </style>
