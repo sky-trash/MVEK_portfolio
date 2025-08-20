@@ -2,7 +2,7 @@
 import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
 import { ref, onMounted, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   doc, getDoc, collection, query, where, getDocs,
   updateDoc, arrayUnion, arrayRemove, addDoc,
@@ -12,6 +12,7 @@ import { db, auth } from '@/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
 const route = useRoute();
+const router = useRouter();
 const userId = ref(route.params.id || '');
 
 // Данные профиля
@@ -35,6 +36,7 @@ const profileData = ref({
 
 // Проекты пользователя
 const userProjects = ref<any[]>([]);
+const specialtiesList = ref<string[]>([]); // Список специальностей из Firestore
 
 // Состояния
 const isLoading = ref(true);
@@ -45,7 +47,7 @@ const newSkill = ref('');
 const currentUserId = ref('');
 const errorMessage = ref('');
 const isAddingProject = ref(false);
-const isSavingProject = ref(false); // Новое состояние для загрузки
+const isSavingProject = ref(false);
 
 // Данные для нового проекта
 const newProject = ref({
@@ -67,6 +69,17 @@ const isFormValid = computed(() => {
          newProject.value.type.trim() !== '' &&
          newProject.value.description.trim() !== '';
 });
+
+// Загрузка специальностей из Firestore
+const loadSpecialties = async () => {
+  try {
+    const specialtiesSnapshot = await getDocs(collection(db, 'specialties'));
+    specialtiesList.value = specialtiesSnapshot.docs.map(doc => doc.data().name);
+    console.log('Загружено специальностей:', specialtiesList.value);
+  } catch (error) {
+    console.error('Ошибка загрузки специальностей:', error);
+  }
+};
 
 // Улучшенная функция поиска пользователя
 const findUserDocument = async (identifier: string) => {
@@ -322,6 +335,10 @@ const cancelAddProject = () => {
 
 // Удаление проекта
 const removeProject = async (projectId: string) => {
+  if (!confirm('Вы уверены, что хотите удалить этот проект?')) {
+    return;
+  }
+
   try {
     await deleteDoc(doc(db, 'projects', projectId));
 
@@ -339,8 +356,14 @@ const removeProject = async (projectId: string) => {
   }
 };
 
+// Переход на детальную страницу проекта
+const goToProjectDetail = (projectId: string) => {
+  router.push(`/project/${projectId}`);
+};
+
 // Инициализация
 onMounted(() => {
+  loadSpecialties(); // Загружаем список специальностей
   onAuthStateChanged(auth, (user) => {
     if (user) {
       currentUserId.value = user.uid;
@@ -496,9 +519,13 @@ onMounted(() => {
               </div>
 
               <div class="form-group">
-                <label>Тип проекта <span class="required">*</span></label>
-                <input v-model="newProject.type" type="text" class="form-input"
-                  placeholder="Дизайн, Веб-разработка и т.д.">
+                <label>Тип проекта (специальность) <span class="required">*</span></label>
+                <select v-model="newProject.type" class="form-select">
+                  <option value="">Выберите из списка</option>
+                  <option v-for="specialty in specialtiesList" :key="specialty" :value="specialty">
+                    {{ specialty }}
+                  </option>
+                </select>
                 <small v-if="!newProject.type.trim()" class="error-text">Это поле обязательно</small>
               </div>
 
@@ -544,7 +571,7 @@ onMounted(() => {
             </div>
 
             <div v-if="activeTab === 'projects'" class="projects-grid">
-              <div v-for="(project, index) in userProjects" :key="index" class="project-card">
+              <div v-for="(project, index) in userProjects" :key="index" class="project-card" @click="goToProjectDetail(project.id)">
                 <div class="project-image-container">
                   <img :src="project.images[0] || '/placeholder-project.png'" :alt="project.title"
                     class="project-image">
@@ -556,8 +583,8 @@ onMounted(() => {
                       <i class="fas fa-eye"></i> {{ project.views || 0 }}
                     </span>
                   </div>
-                  <button v-if="isOwnProfile" @click="removeProject(project.id)" class="project-delete-button">
-                    <i class="fas fa-trash"></i>
+                  <button v-if="isOwnProfile" @click.stop="removeProject(project.id)" class="project-delete-button">
+                    <i class="fas fa-trash">X</i>
                   </button>
                 </div>
                 <div class="project-info">
@@ -596,6 +623,57 @@ onMounted(() => {
   </main>
   <Footer />
 </template>
+
+<style scoped>
+/* Стили остаются такими же, но добавлю несколько улучшений */
+
+.project-card {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.project-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.form-select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 2px solid #e1e5e9;
+  border-radius: 8px;
+  font-size: 1rem;
+  background-color: white;
+}
+
+.form-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.project-delete-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.project-delete-button:hover {
+  background: rgba(255, 71, 87, 0.9);
+  color: white;
+}
+
+/* Остальные стили остаются без изменений */
+</style>
 <style scoped>
 @import "./profile.scss";
 

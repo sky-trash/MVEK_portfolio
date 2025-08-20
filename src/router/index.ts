@@ -55,6 +55,16 @@ const routes = [
     }
   },
   {
+    path: '/profile/:id',
+    name: 'user-profile',
+    component: ProfileView,
+    meta: {
+      title: 'Профиль пользователя',
+      requiresAuth: false
+    },
+    props: true
+  },
+  {
     path: '/about',
     name: 'about',
     component: AboutView,
@@ -120,7 +130,7 @@ const routes = [
     }
   },
   {
-    path: '/projects/:id',
+    path: '/project/:id',
     name: 'project-details',
     component: ProjectDetailsView,
     meta: {
