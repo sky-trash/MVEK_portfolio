@@ -1,318 +1,540 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { 
-  collection, 
-  getDocs, 
-  query, 
-  orderBy,
-  doc,
-  getDoc
-} from 'firebase/firestore'
-import { db } from '@/firebase'
-import { getAuth, onAuthStateChanged } from 'firebase/auth'
 import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
-import ProjectCard from '../projectCard/projectCard.vue'
+import { ref, onMounted, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { 
+  doc, getDoc, updateDoc, arrayUnion, arrayRemove,
+  collection, addDoc, query, where, getDocs, orderBy, onSnapshot,
+  setDoc, increment, serverTimestamp
+} from 'firebase/firestore'
+import { db, auth } from '@/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
 
+const route = useRoute()
 const router = useRouter()
-const auth = getAuth()
-
-// Данные
-const projects = ref<any[]>([])
-const groups = ref<string[]>([])
-const specialties = ref<string[]>([])
-const projectTypes = ref<string[]>([])
-const userGroups = ref<string[]>([])
-const userSpecialties = ref<string[]>([])
-
-// Фильтры
-const searchQuery = ref('')
-const selectedGroup = ref('')
-const selectedSpecialty = ref('')
-const selectedProjectType = ref('')
-const showOnlyMyGroups = ref(false)
-const showOnlyMySpecialties = ref(false)
-
-// Состояние загрузки
+const project = ref<any>(null)
 const isLoading = ref(true)
+const error = ref('')
+const currentUser = ref<any>(null)
+const isAuthenticated = ref(false)
 
-// Загрузка данных пользователя
-const loadUserData = async (userId: string) => {
+// Состояния для взаимодействий
+const userRating = ref(0)
+const userLike = ref(false)
+const userInCart = ref(false)
+const newComment = ref('')
+const comments = ref<any[]>([])
+const userCommentLikes = ref<Set<string>>(new Set())
+
+// Загрузка данных проекта
+const loadProjectData = async () => {
   try {
-    const userDoc = await getDoc(doc(db, 'users', userId))
-    if (userDoc.exists()) {
-      const userData = userDoc.data()
-      userGroups.value = userData.group ? [userData.group] : []
-      userSpecialties.value = userData.specialty ? [userData.specialty] : []
-      console.log('Данные пользователя загружены:', userData)
-    }
-  } catch (error) {
-    console.error('Ошибка загрузки данных пользователя:', error)
-  }
-}
-
-// Загрузка данных из Firebase
-const loadData = async () => {
-  try {
-    isLoading.value = true
-    console.log('Начинаем загрузку данных...')
-
-    // Загрузка проектов
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
-    const projectsSnapshot = await getDocs(projectsQuery)
-    projects.value = projectsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
-    console.log('Загружено проектов:', projects.value.length)
-    console.log('Пример проекта:', projects.value[0])
-
-    // Загрузка групп из коллекции groups
-    try {
-      const groupsSnapshot = await getDocs(collection(db, 'groups'))
-      groups.value = groupsSnapshot.docs
-        .map(doc => doc.data().name)
-        .filter(name => name && name.trim() !== '')
-      console.log('Загружено групп из коллекции:', groups.value)
-    } catch (error) {
-      console.log('Коллекция groups не найдена, извлекаем группы из проектов')
-      const uniqueGroups = new Set<string>()
-      projects.value.forEach(project => {
-        if (project.group && project.group.trim() !== '') {
-          uniqueGroups.add(project.group)
-        }
-      })
-      groups.value = Array.from(uniqueGroups)
-    }
-
-    // Загрузка специальностей из коллекции specialties
-    try {
-      const specialtiesSnapshot = await getDocs(collection(db, 'specialties'))
-      specialties.value = specialtiesSnapshot.docs
-        .map(doc => doc.data().name)
-        .filter(name => name && name.trim() !== '')
-      console.log('Загружено специальностей из коллекции:', specialties.value)
-    } catch (error) {
-      console.log('Коллекция specialties не найдена, извлекаем специальности из проектов')
-      const uniqueSpecialties = new Set<string>()
-      projects.value.forEach(project => {
-        if (project.specialty && project.specialty.trim() !== '') {
-          uniqueSpecialties.add(project.specialty)
-        }
-      })
-      specialties.value = Array.from(uniqueSpecialties)
-    }
-
-    // Извлекаем типы проектов из самих проектов
-    const uniqueTypes = new Set<string>()
-    projects.value.forEach(project => {
-      if (project.type && project.type.trim() !== '') {
-        uniqueTypes.add(project.type)
-      }
-    })
-    projectTypes.value = Array.from(uniqueTypes)
+    const projectId = route.params.id as string
+    const projectDoc = await getDoc(doc(db, 'projects', projectId))
     
-    console.log('Уникальные группы:', groups.value)
-    console.log('Уникальные специальности:', specialties.value)
-    console.log('Уникальные типы проектов:', projectTypes.value)
-
-  } catch (error) {
-    console.error('Ошибка загрузки данных:', error)
+    if (projectDoc.exists()) {
+      project.value = { id: projectDoc.id, ...projectDoc.data() }
+      await loadUserInteractions()
+      await loadComments()
+      
+      // Увеличиваем счетчик просмотров
+      await updateDoc(doc(db, 'projects', projectId), {
+        views: increment(1)
+      })
+    } else {
+      error.value = 'Проект не найден'
+    }
+  } catch (err) {
+    console.error('Ошибка загрузки проекта:', err)
+    error.value = 'Ошибка при загрузке проекта'
   } finally {
     isLoading.value = false
   }
 }
 
-// Улучшенная функция поиска с фильтрами пользователя
-const filteredProjects = computed(() => {
-  if (!projects.value.length) return []
-  
-  const searchTerm = searchQuery.value.toLowerCase().trim()
-  
-  return projects.value.filter(project => {
-    // Поиск по нескольким полям
-    const matchesSearch = searchTerm === '' || 
-      (project.title && project.title.toLowerCase().includes(searchTerm)) ||
-      (project.authorName && project.authorName.toLowerCase().includes(searchTerm)) ||
-      (project.group && project.group.toLowerCase().includes(searchTerm)) ||
-      (project.description && project.description.toLowerCase().includes(searchTerm)) ||
-      (project.specialty && project.specialty.toLowerCase().includes(searchTerm))
-    
-    // Фильтрация по группе
-    const matchesGroup = selectedGroup.value === '' || 
-      (project.group === selectedGroup.value)
-    
-    // Фильтрация по специальности
-    const matchesSpecialty = selectedSpecialty.value === '' || 
-      (project.specialty === selectedSpecialty.value)
-    
-    // Фильтрация по типу проекта
-    const matchesProjectType = selectedProjectType.value === '' || 
-      (project.type === selectedProjectType.value)
-    
-    // Фильтрация по группам пользователя
-    const matchesUserGroups = !showOnlyMyGroups.value || 
-      (userGroups.value.length > 0 && project.group && userGroups.value.includes(project.group))
-    
-    // Фильтрация по специальностям пользователя
-    const matchesUserSpecialties = !showOnlyMySpecialties.value || 
-      (userSpecialties.value.length > 0 && project.specialty && userSpecialties.value.includes(project.specialty))
-    
-    return matchesSearch && matchesGroup && matchesSpecialty && 
-           matchesProjectType && matchesUserGroups && matchesUserSpecialties
-  })
-})
+// Загрузка пользовательских взаимодействий
+const loadUserInteractions = async () => {
+  if (!currentUser.value) return
 
-// Переход на детальную страницу
-const goToProjectDetail = (projectId: string) => {
-  router.push(`/project/${projectId}`)
+  try {
+    const userInteractionsRef = doc(db, 'userInteractions', currentUser.value.uid)
+    const userInteractionsDoc = await getDoc(userInteractionsRef)
+    
+    if (userInteractionsDoc.exists()) {
+      const data = userInteractionsDoc.data()
+      userRating.value = data.ratings?.[project.value.id] || 0
+      userLike.value = data.likes?.includes(project.value.id) || false
+      userInCart.value = data.cart?.includes(project.value.id) || false
+      
+      // Загружаем лайки комментариев
+      if (data.commentLikes) {
+        userCommentLikes.value = new Set(data.commentLikes)
+      }
+    }
+  } catch (err) {
+    console.error('Ошибка загрузки взаимодействий:', err)
+  }
 }
 
-// Сброс фильтров
-const clearFilters = () => {
-  searchQuery.value = ''
-  selectedGroup.value = ''
-  selectedSpecialty.value = ''
-  selectedProjectType.value = ''
-  showOnlyMyGroups.value = false
-  showOnlyMySpecialties.value = false
+// Загрузка комментариев
+const loadComments = async () => {
+  try {
+    const commentsQuery = query(
+      collection(db, 'comments'),
+      where('projectId', '==', project.value.id),
+      orderBy('createdAt', 'desc')
+    )
+    
+    const querySnapshot = await getDocs(commentsQuery)
+    comments.value = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }))
+
+    // Также подписываемся на реальные обновления
+    const unsubscribe = onSnapshot(commentsQuery, (snapshot) => {
+      comments.value = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+    })
+
+    return unsubscribe
+  } catch (err) {
+    console.error('Ошибка загрузки комментариев:', err)
+    comments.value = []
+  }
 }
 
-// Автоматическое применение фильтров пользователя при их изменении
-watch([showOnlyMyGroups, showOnlyMySpecialties], ([newShowGroups, newShowSpecialties]) => {
-  if (newShowGroups && userGroups.value.length > 0 && selectedGroup.value === '') {
-    selectedGroup.value = userGroups.value[0]
+// Создание или обновление документа пользовательских взаимодействий
+const updateUserInteractions = async (updates: any) => {
+  if (!currentUser.value) return
+
+  try {
+    const userInteractionsRef = doc(db, 'userInteractions', currentUser.value.uid)
+    await setDoc(userInteractionsRef, updates, { merge: true })
+  } catch (err) {
+    console.error('Ошибка обновления взаимодействий:', err)
+    throw err
   }
-  
-  if (newShowSpecialties && userSpecialties.value.length > 0 && selectedSpecialty.value === '') {
-    selectedSpecialty.value = userSpecialties.value[0]
+}
+
+// Оценка проекта (только один раз)
+const rateProject = async (rating: number) => {
+  if (!isAuthenticated.value) {
+    alert('Для оценки необходимо авторизоваться')
+    return
   }
+
+  // Если пользователь уже оценил проект, запрещаем изменение
+  if (userRating.value > 0) {
+    alert('Вы уже оценили этот проект. Изменение оценки невозможно.')
+    return
+  }
+
+  try {
+    const projectRef = doc(db, 'projects', project.value.id)
+
+    // Обновляем взаимодействия пользователя
+    await updateUserInteractions({
+      [`ratings.${project.value.id}`]: rating
+    })
+
+    // Обновляем общий рейтинг проекта
+    await updateDoc(projectRef, {
+      totalRating: increment(rating),
+      ratingCount: increment(1)
+    })
+
+    userRating.value = rating
+
+    // Обновляем данные проекта
+    const updatedProjectDoc = await getDoc(projectRef)
+    if (updatedProjectDoc.exists()) {
+      project.value = { id: updatedProjectDoc.id, ...updatedProjectDoc.data() }
+    }
+
+  } catch (err) {
+    console.error('Ошибка оценки:', err)
+    alert('Ошибка при оценке проекта')
+  }
+}
+
+// Лайк проекта
+const toggleLike = async () => {
+  if (!isAuthenticated.value) {
+    alert('Для лайков необходимо авторизоваться')
+    return
+  }
+
+  try {
+    const projectRef = doc(db, 'projects', project.value.id)
+
+    if (userLike.value) {
+      // Удаляем лайк
+      await updateUserInteractions({
+        likes: arrayRemove(project.value.id)
+      })
+      await updateDoc(projectRef, {
+        likes: increment(-1)
+      })
+      userLike.value = false
+    } else {
+      // Добавляем лайк
+      await updateUserInteractions({
+        likes: arrayUnion(project.value.id)
+      })
+      await updateDoc(projectRef, {
+        likes: increment(1)
+      })
+      userLike.value = true
+    }
+
+    // Обновляем данные проекта
+    const updatedProjectDoc = await getDoc(projectRef)
+    if (updatedProjectDoc.exists()) {
+      project.value = { id: updatedProjectDoc.id, ...updatedProjectDoc.data() }
+    }
+
+  } catch (err) {
+    console.error('Ошибка лайка:', err)
+    alert('Ошибка при лайке проекта')
+  }
+}
+
+// Добавление в корзину
+const toggleCart = async () => {
+  if (!isAuthenticated.value) {
+    alert('Для добавления в корзину необходимо авторизоваться')
+    return
+  }
+
+  try {
+    if (userInCart.value) {
+      await updateUserInteractions({
+        cart: arrayRemove(project.value.id)
+      })
+      userInCart.value = false
+    } else {
+      await updateUserInteractions({
+        cart: arrayUnion(project.value.id)
+      })
+      userInCart.value = true
+    }
+
+  } catch (err) {
+    console.error('Ошибка корзины:', err)
+    alert('Ошибка при работе с корзиной')
+  }
+}
+
+// Добавление комментария
+const addComment = async () => {
+  if (!isAuthenticated.value) {
+    alert('Для комментариев необходимо авторизоваться')
+    return
+  }
+
+  if (!newComment.value.trim()) {
+    alert('Комментарий не может быть пустым')
+    return
+  }
+
+  try {
+    // Получаем данные пользователя из коллекции users
+    let userName = 'Аноним'
+    try {
+      const userDoc = await getDoc(doc(db, 'users', currentUser.value.uid))
+      if (userDoc.exists()) {
+        const userData = userDoc.data()
+        userName = [userData.surname, userData.name, userData.lname]
+          .filter(Boolean)
+          .join(' ') || currentUser.value.displayName || 'Аноним'
+      }
+    } catch (userErr) {
+      console.error('Ошибка получения данных пользователя:', userErr)
+      userName = currentUser.value.displayName || 'Аноним'
+    }
+
+    await addDoc(collection(db, 'comments'), {
+      projectId: project.value.id,
+      userId: currentUser.value.uid,
+      userName: userName,
+      userAvatar: currentUser.value.photoURL || '/placeholder-avatar.png',
+      text: newComment.value.trim(),
+      createdAt: serverTimestamp(),
+      likes: 0,
+      likedBy: []
+    })
+
+    newComment.value = ''
+    
+    // Перезагружаем комментарии
+    await loadComments()
+
+  } catch (err) {
+    console.error('Ошибка комментария:', err)
+    alert('Ошибка при добавлении комментария')
+  }
+}
+
+// Лайк комментария
+const toggleCommentLike = async (comment: any) => {
+  if (!isAuthenticated.value) {
+    alert('Для лайка комментариев необходимо авторизоваться')
+    return
+  }
+
+  try {
+    const commentRef = doc(db, 'comments', comment.id)
+    const isLiked = userCommentLikes.value.has(comment.id)
+
+    if (isLiked) {
+      // Удаляем лайк
+      await updateDoc(commentRef, {
+        likes: increment(-1),
+        likedBy: arrayRemove(currentUser.value.uid)
+      })
+      userCommentLikes.value.delete(comment.id)
+    } else {
+      // Добавляем лайк
+      await updateDoc(commentRef, {
+        likes: increment(1),
+        likedBy: arrayUnion(currentUser.value.uid)
+      })
+      userCommentLikes.value.add(comment.id)
+    }
+
+    // Сохраняем лайки комментариев пользователя
+    await updateUserInteractions({
+      commentLikes: Array.from(userCommentLikes.value)
+    })
+
+    // Обновляем комментарии
+    await loadComments()
+
+  } catch (err) {
+    console.error('Ошибка лайка комментария:', err)
+    alert('Ошибка при лайке комментария')
+  }
+}
+
+// Проверка, лайкнул ли пользователь комментарий
+const isCommentLiked = (commentId: string) => {
+  return userCommentLikes.value.has(commentId)
+}
+
+// Назад к проектам
+const goBack = () => {
+  router.push('/projects')
+}
+
+// Вычисляемые свойства
+const averageRating = computed(() => {
+  if (!project.value || !project.value.ratingCount || project.value.ratingCount === 0) return 0
+  return (project.value.totalRating / project.value.ratingCount).toFixed(1)
 })
+
+const starRating = computed(() => {
+  return Math.round(parseFloat(averageRating.value))
+})
+
+// Форматирование даты комментария
+const formatCommentDate = (date: any) => {
+  if (!date) return 'Дата не указана'
+  
+  try {
+    // Если date - это объект timestamp Firebase
+    if (date && typeof date === 'object' && date.seconds) {
+      return new Date(date.seconds * 1000).toLocaleDateString('ru-RU', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    }
+    
+    // Если date - это строка
+    if (typeof date === 'string') {
+      return new Date(date).toLocaleDateString('ru-RU', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    }
+    
+    return 'Дата не указана'
+  } catch {
+    return 'Дата не указана'
+  }
+}
 
 onMounted(() => {
-  console.log('Компонент Home mounted')
-  loadData()
-  
-  // Слушатель изменения статуса аутентификации
   onAuthStateChanged(auth, (user) => {
-    console.log('Статус аутентификации изменен:', user)
     if (user) {
-      loadUserData(user.uid)
+      currentUser.value = user
+      isAuthenticated.value = true
     } else {
-      userGroups.value = []
-      userSpecialties.value = []
-      showOnlyMyGroups.value = false
-      showOnlyMySpecialties.value = false
+      currentUser.value = null
+      isAuthenticated.value = false
     }
+    loadProjectData()
   })
 })
 </script>
 
 <template>
   <Header/>
-  <main class="home-page">
-    <!-- Баннер с названием -->
-    <section class="banner">
-      <h1 class="banner__title">Портфолио МВЕК</h1>
-    </section>
+  <div class="project-details">
+    <!-- Кнопка назад -->
+    <div class="back-button-container">
+      <button @click="goBack" class="back-button">
+        ← Назад к проектам
+      </button>
+    </div>
 
-    <!-- Поисковая строка с фильтрами -->
-    <section class="search-section">
-      <div class="search-container">
-        <input 
-          v-model="searchQuery"
-          type="text" 
-          class="search-input" 
-          placeholder="Поиск по имени, группе, проекту или описанию..."
-        />
-        <button @click="clearFilters" class="clear-button">Сбросить</button>
+    <div v-if="isLoading" class="loading">Загрузка...</div>
+    
+    <div v-else-if="error" class="error">
+      {{ error }}
+    </div>
+    
+    <div v-else-if="project" class="project-content">
+      <!-- Заголовок и мета-информация -->
+      <div class="project-header">
+        <h1>{{ project.title }}</h1>
+        <div class="project-actions">
+          <button @click="toggleLike" :class="['like-btn', { liked: userLike }]">
+            ❤️ {{ project.likes || 0 }}
+          </button>
+          <button @click="toggleCart" :class="['cart-btn', { 'in-cart': userInCart }]">
+            {{ userInCart ? '🗑️ Из корзины' : '🛒 В корзину' }}
+          </button>
+        </div>
       </div>
-      
-      <!-- Фильтры пользователя -->
-      <div class="user-filters" v-if="userGroups.length > 0 || userSpecialties.length > 0">
-        <label class="filter-checkbox">
-          <input 
-            type="checkbox" 
-            v-model="showOnlyMyGroups" 
-            :disabled="userGroups.length === 0"
-          />
-          Только мои группы
-          <span v-if="userGroups.length > 0">({{ userGroups.join(', ') }})</span>
-          <span v-else class="disabled-text">(не указаны)</span>
-        </label>
-        
-        <label class="filter-checkbox">
-          <input 
-            type="checkbox" 
-            v-model="showOnlyMySpecialties" 
-            :disabled="userSpecialties.length === 0"
-          />
-          Только мои специальности
-          <span v-if="userSpecialties.length > 0">({{ userSpecialties.join(', ') }})</span>
-          <span v-else class="disabled-text">(не указаны)</span>
-        </label>
-      </div>
-      
-      <div class="filters">
-        <select v-model="selectedGroup" class="filter-select" :disabled="showOnlyMyGroups && userGroups.length > 0">
-          <option value="">Все группы</option>
-          <option v-for="group in groups" :key="group" :value="group">{{ group }}</option>
-        </select>
-        
-        <select v-model="selectedSpecialty" class="filter-select" :disabled="showOnlyMySpecialties && userSpecialties.length > 0">
-          <option value="">Все специальности</option>
-          <option v-for="specialty in specialties" :key="specialty" :value="specialty">{{ specialty }}</option>
-        </select>
-        
-        <select v-model="selectedProjectType" class="filter-select">
-          <option value="">Все типы проектов</option>
-          <option v-for="type in projectTypes" :key="type" :value="type">{{ type }}</option>
-        </select>
-      </div>
-      
-      <!-- Информация о результатах -->
-      <div class="results-info" v-if="projects.length">
-        <p>Найдено проектов: {{ filteredProjects.length }} из {{ projects.length }}</p>
-        <p v-if="showOnlyMyGroups" class="filter-info">Фильтр: Мои группы</p>
-        <p v-if="showOnlyMySpecialties" class="filter-info">Фильтр: Мои специальности</p>
-      </div>
-    </section>
 
-    <!-- Лучшие работы -->
-    <section class="featured-works">
-      <h2 class="section-title">Лучшие работы</h2>
-      
-      <div v-if="isLoading" class="loading">Загрузка проектов...</div>
-      
-      <div v-else-if="!projects.length" class="no-results">
-        <p>Проекты не найдены. Проверьте подключение к Firebase.</p>
-        <button @click="loadData" class="clear-button">Попробовать снова</button>
+      <div class="project-meta">
+        <span class="author">Автор: {{ project.authorName }}</span>
+        <span class="type">Тип: {{ project.type }}</span>
+        <span class="date">Дата: {{ new Date(project.date).toLocaleDateString() }}</span>
       </div>
-      
-      <div v-else-if="!filteredProjects.length" class="no-results">
-        <p>Проекты не найдены. Попробуйте изменить параметры поиска.</p>
-        <button @click="clearFilters" class="clear-button">Сбросить фильтры</button>
+
+      <!-- Рейтинг -->
+      <div class="rating-section">
+        <h3>Оценка проекта</h3>
+        <div class="rating-display">
+          <span class="average-rating">{{ averageRating }}</span>
+          <div class="stars">
+            <span v-for="star in 5" :key="star" class="star">
+              {{ star <= starRating ? '⭐' : '☆' }}
+            </span>
+          </div>
+          <span class="rating-count">({{ project.ratingCount || 0 }} оценок)</span>
+        </div>
+        
+        <div v-if="isAuthenticated" class="rating-input">
+          <span>Ваша оценка:</span>
+          <div class="star-rating">
+            <button
+              v-for="rating in 5"
+              :key="rating"
+              @click="rateProject(rating)"
+              :class="['star-btn', { active: rating <= userRating, disabled: userRating > 0 }]"
+              :disabled="userRating > 0"
+            >
+              {{ rating <= userRating ? '⭐' : '☆' }}
+            </button>
+          </div>
+          <div v-if="userRating > 0" class="rating-info">
+            <small>Вы уже оценили этот проект</small>
+          </div>
+        </div>
+        <div v-else class="auth-prompt">
+          <router-link to="/auth">Войдите</router-link> чтобы оценить проект
+        </div>
       </div>
-      
-      <div v-else class="works-grid">
-        <ProjectCard 
-          v-for="project in filteredProjects" 
-          :key="project.id"
-          :project="project"
-          @click="goToProjectDetail(project.id)"
-        />
+
+      <!-- Описание -->
+      <div class="project-description">
+        <h3>Описание</h3>
+        <p>{{ project.description }}</p>
       </div>
-    </section>
-  </main>
+
+      <!-- Изображения -->
+      <div v-if="project.images && project.images.length" class="project-images">
+        <h3>Галерея проекта</h3>
+        <div class="images-grid">
+          <div v-for="(image, index) in project.images" :key="index" class="image-item">
+            <img :src="image" :alt="`${project.title} - изображение ${index + 1}`">
+          </div>
+        </div>
+      </div>
+
+      <!-- Статистика -->
+      <div class="project-stats">
+        <span class="views">👁️ {{ project.views || 0 }} просмотров</span>
+        <span class="likes">❤️ {{ project.likes || 0 }} лайков</span>
+        <span class="rating">⭐ {{ averageRating }} средняя оценка</span>
+      </div>
+
+      <!-- Комментарии -->
+      <div class="comments-section">
+        <h3>Комментарии ({{ comments.length }})</h3>
+        
+        <!-- Форма добавления комментария -->
+        <div v-if="isAuthenticated" class="comment-form">
+          <textarea
+            v-model="newComment"
+            placeholder="Оставьте ваш отзыв..."
+            rows="3"
+            class="comment-input"
+          ></textarea>
+          <button @click="addComment" :disabled="!newComment.trim()" class="comment-submit">
+            Отправить
+          </button>
+        </div>
+        <div v-else class="auth-prompt">
+          <router-link to="/auth">Войдите</router-link> чтобы оставить комментарий
+        </div>
+
+        <!-- Список комментариев -->
+        <div v-if="comments.length" class="comments-list">
+          <div v-for="comment in comments" :key="comment.id" class="comment-item">
+            <div class="comment-header">
+              <img src="../../../public/logo.png" class="comment-avatar">
+              <div class="comment-user">
+                <strong>{{ comment.userName }}</strong>
+                <span class="comment-date">
+                  {{ formatCommentDate(comment.createdAt) }}
+                </span>
+              </div>
+            </div>
+            <p class="comment-text">{{ comment.text }}</p>
+            <div class="comment-actions">
+              <button 
+                @click="toggleCommentLike(comment)" 
+                :class="['comment-like', { liked: isCommentLiked(comment.id) }]"
+              >
+                ❤️ {{ comment.likes || 0 }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="no-comments">
+          <p>Пока нет комментариев. Будьте первым!</p>
+        </div>
+      </div>
+    </div>
+  </div>
   <Footer/>
 </template>
+<style scoped lang="scss">
+@import "./projectDetails.scss";
 
-<style scoped>
-@import "./home.scss";
-</style>
-
-<style scoped>
 .back-button-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -432,9 +654,4 @@ onMounted(() => {
 .comment-like.liked:hover {
   color: #ff3742;
 }
-
-/* Остальные стили остаются без изменений */
-</style>
-<style scoped lang="scss">
-@import "./projectDetails.scss";
 </style>

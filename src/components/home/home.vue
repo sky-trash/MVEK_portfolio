@@ -1,54 +1,91 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { 
-  collection, 
-  getDocs, 
-  query, 
-  orderBy,
-  doc,
-  getDoc
-} from 'firebase/firestore'
+import { collection, getDocs, query, orderBy, where } from 'firebase/firestore'
 import { db } from '@/firebase'
 import { getAuth, onAuthStateChanged } from 'firebase/auth'
 import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
-import ProjectCard from '../projectCard/projectCard.vue'
 
 const router = useRouter()
 const auth = getAuth()
 
 // Данные
 const projects = ref<any[]>([])
-const groups = ref<string[]>([])
-const specialties = ref<string[]>([])
-const projectTypes = ref<string[]>([])
-const userGroups = ref<string[]>([])
-const userSpecialties = ref<string[]>([])
+const filteredProjects = ref<any[]>([])
+const currentUser = ref<any>(null)
+const allUsers = ref<any[]>([])
 
 // Фильтры
 const searchQuery = ref('')
 const selectedGroup = ref('')
 const selectedSpecialty = ref('')
 const selectedProjectType = ref('')
-const showOnlyMyGroups = ref(false)
-const showOnlyMySpecialties = ref(false)
 
 // Состояние загрузки
 const isLoading = ref(true)
 
-// Загрузка данных пользователя
-const loadUserData = async (userId: string) => {
+// Уникальные значения для фильтров
+const groups = ref<string[]>([])
+const specialties = ref<string[]>([])
+const projectTypes = ref<string[]>([])
+
+// Вспомогательная функция для извлечения значений из данных Firebase
+const getFieldValue = (data: any, fieldName: string): string => {
+  if (!data) return ''
+
+  // Пытаемся получить значение разными способами
+  const value = data[fieldName] ||
+    data[fieldName?.toLowerCase()] ||
+    data[fieldName?.toUpperCase()] ||
+    data[fieldName?.charAt(0).toLowerCase() + fieldName?.slice(1)] ||
+    ''
+
+  return typeof value === 'string' ? value : String(value)
+}
+
+// Нормализация строки для сравнения
+const normalizeString = (str: string): string => {
+  return str ? str.toString().toLowerCase().trim().replace(/\s+/g, ' ') : ''
+}
+
+// Загрузка всех пользователей для получения всех групп и специальностей
+const loadAllUsers = async () => {
   try {
-    const userDoc = await getDoc(doc(db, 'users', userId))
-    if (userDoc.exists()) {
-      const userData = userDoc.data()
-      userGroups.value = userData.group ? [userData.group] : []
-      userSpecialties.value = userData.specialty ? [userData.specialty] : []
-      console.log('Данные пользователя загружены:', userData)
+    const usersQuery = query(collection(db, 'users'))
+    const usersSnapshot = await getDocs(usersQuery)
+    
+    if (!usersSnapshot.empty) {
+      allUsers.value = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      
+      console.log('Загружено пользователей:', allUsers.value.length)
     }
   } catch (error) {
-    console.error('Ошибка загрузки данных пользователя:', error)
+    console.error('Ошибка загрузки пользователей:', error)
+  }
+}
+
+// Загрузка текущего пользователя
+const loadCurrentUser = async () => {
+  try {
+    const user = auth.currentUser
+    if (!user) return null
+
+    const usersQuery = query(collection(db, 'users'), where('userId', '==', user.uid))
+    const usersSnapshot = await getDocs(usersQuery)
+    
+    if (!usersSnapshot.empty) {
+      currentUser.value = {
+        id: usersSnapshot.docs[0].id,
+        ...usersSnapshot.docs[0].data()
+      }
+      console.log('Текущий пользователь:', currentUser.value)
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки пользователя:', error)
   }
 }
 
@@ -56,66 +93,92 @@ const loadUserData = async (userId: string) => {
 const loadData = async () => {
   try {
     isLoading.value = true
-    console.log('Начинаем загрузку данных...')
+    console.log('Загрузка данных...')
 
     // Загрузка проектов
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
     const projectsSnapshot = await getDocs(projectsQuery)
-    projects.value = projectsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
-    console.log('Загружено проектов:', projects.value.length)
-    console.log('Пример проекта:', projects.value[0])
 
-    // Загрузка групп из коллекции groups
-    try {
-      const groupsSnapshot = await getDocs(collection(db, 'groups'))
-      groups.value = groupsSnapshot.docs
-        .map(doc => doc.data().name)
-        .filter(name => name && name.trim() !== '')
-      console.log('Загружено групп из коллекции:', groups.value)
-    } catch (error) {
-      console.log('Коллекция groups не найдена, извлекаем группы из проектов')
-      const uniqueGroups = new Set<string>()
-      projects.value.forEach(project => {
-        if (project.group && project.group.trim() !== '') {
-          uniqueGroups.add(project.group)
+    if (projectsSnapshot.empty) {
+      console.log('Нет проектов в базе данных')
+      projects.value = []
+      filteredProjects.value = []
+    } else {
+      projects.value = projectsSnapshot.docs.map(doc => {
+        const data = doc.data()
+        const group = getFieldValue(data, 'group')
+        const specialty = getFieldValue(data, 'specialty')
+        
+        console.log('Проект:', {
+          id: doc.id,
+          title: getFieldValue(data, 'title'),
+          group: group,
+          specialty: specialty,
+          rawGroup: data.group,
+          rawSpecialty: data.specialty
+        })
+
+        return {
+          id: doc.id,
+          ...data,
+          // Нормализуем поля
+          group: group,
+          specialty: specialty,
+          type: getFieldValue(data, 'type'),
+          title: getFieldValue(data, 'title'),
+          authorName: getFieldValue(data, 'authorName'),
+          description: getFieldValue(data, 'description')
         }
       })
-      groups.value = Array.from(uniqueGroups)
+
+      console.log('Загружено проектов:', projects.value.length)
     }
 
-    // Загрузка специальностей из коллекции specialties
-    try {
-      const specialtiesSnapshot = await getDocs(collection(db, 'specialties'))
-      specialties.value = specialtiesSnapshot.docs
-        .map(doc => doc.data().name)
-        .filter(name => name && name.trim() !== '')
-      console.log('Загружено специальностей из коллекции:', specialties.value)
-    } catch (error) {
-      console.log('Коллекция specialties не найдена, извлекаем специальности из проектов')
-      const uniqueSpecialties = new Set<string>()
-      projects.value.forEach(project => {
-        if (project.specialty && project.specialty.trim() !== '') {
-          uniqueSpecialties.add(project.specialty)
-        }
-      })
-      specialties.value = Array.from(uniqueSpecialties)
-    }
-
-    // Извлекаем типы проектов из самих проектов
+    // Извлекаем уникальные значения для фильтров из проектов
+    const uniqueGroups = new Set<string>()
+    const uniqueSpecialties = new Set<string>()
     const uniqueTypes = new Set<string>()
+
     projects.value.forEach(project => {
+      if (project.group && project.group.trim() !== '') {
+        uniqueGroups.add(project.group.trim())
+      }
+      if (project.specialty && project.specialty.trim() !== '') {
+        uniqueSpecialties.add(project.specialty.trim())
+      }
       if (project.type && project.type.trim() !== '') {
-        uniqueTypes.add(project.type)
+        uniqueTypes.add(project.type.trim())
       }
     })
-    projectTypes.value = Array.from(uniqueTypes)
+
+    // Загружаем пользователей для получения всех групп и специальностей
+    await loadAllUsers()
     
-    console.log('Уникальные группы:', groups.value)
-    console.log('Уникальные специальности:', specialties.value)
-    console.log('Уникальные типы проектов:', projectTypes.value)
+    // Добавляем группы и специальности из пользователей
+    allUsers.value.forEach(user => {
+      const userGroup = getFieldValue(user, 'group')
+      const userSpecialty = getFieldValue(user, 'specialty')
+      
+      if (userGroup && userGroup.trim() !== '') {
+        uniqueGroups.add(userGroup.trim())
+      }
+      if (userSpecialty && userSpecialty.trim() !== '') {
+        uniqueSpecialties.add(userSpecialty.trim())
+      }
+    })
+
+    groups.value = Array.from(uniqueGroups).sort((a, b) => a.localeCompare(b))
+    specialties.value = Array.from(uniqueSpecialties).sort((a, b) => a.localeCompare(b))
+    projectTypes.value = Array.from(uniqueTypes).sort((a, b) => a.localeCompare(b))
+
+    console.log('Все группы:', groups.value)
+    console.log('Все специальности:', specialties.value)
+
+    // Загружаем текущего пользователя
+    await loadCurrentUser()
+
+    // Применяем фильтры
+    applyFilters()
 
   } catch (error) {
     console.error('Ошибка загрузки данных:', error)
@@ -124,45 +187,59 @@ const loadData = async () => {
   }
 }
 
-// Улучшенная функция поиска с фильтрами пользователя
-const filteredProjects = computed(() => {
-  if (!projects.value.length) return []
-  
-  const searchTerm = searchQuery.value.toLowerCase().trim()
-  
-  return projects.value.filter(project => {
+// Применение фильтров
+const applyFilters = () => {
+  if (projects.value.length === 0) {
+    filteredProjects.value = []
+    return
+  }
+
+  const searchTerm = normalizeString(searchQuery.value)
+
+  filteredProjects.value = projects.value.filter(project => {
     // Поиск по нескольким полям
-    const matchesSearch = searchTerm === '' || 
-      (project.title && project.title.toLowerCase().includes(searchTerm)) ||
-      (project.authorName && project.authorName.toLowerCase().includes(searchTerm)) ||
-      (project.group && project.group.toLowerCase().includes(searchTerm)) ||
-      (project.description && project.description.toLowerCase().includes(searchTerm)) ||
-      (project.specialty && project.specialty.toLowerCase().includes(searchTerm))
-    
-    // Фильтрация по группе
-    const matchesGroup = selectedGroup.value === '' || 
-      (project.group === selectedGroup.value)
-    
-    // Фильтрация по специальности
-    const matchesSpecialty = selectedSpecialty.value === '' || 
-      (project.specialty === selectedSpecialty.value)
-    
+    const matchesSearch = searchTerm === '' ||
+      (project.title && normalizeString(project.title).includes(searchTerm)) ||
+      (project.authorName && normalizeString(project.authorName).includes(searchTerm)) ||
+      (project.group && normalizeString(project.group).includes(searchTerm)) ||
+      (project.description && normalizeString(project.description).includes(searchTerm)) ||
+      (project.specialty && normalizeString(project.specialty).includes(searchTerm))
+
+    // Фильтрация по группе (точное совпадение)
+    const matchesGroup = selectedGroup.value === '' ||
+      (project.group && normalizeString(project.group) === normalizeString(selectedGroup.value))
+
+    // Фильтрация по специальности (точное совпадение)
+    const matchesSpecialty = selectedSpecialty.value === '' ||
+      (project.specialty && normalizeString(project.specialty) === normalizeString(selectedSpecialty.value))
+
     // Фильтрация по типу проекта
-    const matchesProjectType = selectedProjectType.value === '' || 
-      (project.type === selectedProjectType.value)
+    const matchesProjectType = selectedProjectType.value === '' ||
+      (project.type && normalizeString(project.type) === normalizeString(selectedProjectType.value))
+
+    const result = matchesSearch && matchesGroup && matchesSpecialty && matchesProjectType
     
-    // Фильтрация по группам пользователя
-    const matchesUserGroups = !showOnlyMyGroups.value || 
-      (userGroups.value.length > 0 && project.group && userGroups.value.includes(project.group))
-    
-    // Фильтрация по специальностям пользователя
-    const matchesUserSpecialties = !showOnlyMySpecialties.value || 
-      (userSpecialties.value.length > 0 && project.specialty && userSpecialties.value.includes(project.specialty))
-    
-    return matchesSearch && matchesGroup && matchesSpecialty && 
-           matchesProjectType && matchesUserGroups && matchesUserSpecialties
+    if (result) {
+      console.log('Проект подходит:', {
+        title: project.title,
+        group: project.group,
+        specialty: project.specialty,
+        search: searchTerm,
+        selectedGroup: selectedGroup.value,
+        selectedSpecialty: selectedSpecialty.value
+      })
+    }
+
+    return result
   })
-})
+
+  console.log('Отфильтровано проектов:', filteredProjects.value.length)
+  console.log('Активные фильтры:', {
+    группа: selectedGroup.value,
+    специальность: selectedSpecialty.value,
+    тип: selectedProjectType.value
+  })
+}
 
 // Переход на детальную страницу
 const goToProjectDetail = (projectId: string) => {
@@ -175,42 +252,59 @@ const clearFilters = () => {
   selectedGroup.value = ''
   selectedSpecialty.value = ''
   selectedProjectType.value = ''
-  showOnlyMyGroups.value = false
-  showOnlyMySpecialties.value = false
+  applyFilters()
 }
 
-// Автоматическое применение фильтров пользователя при их изменении
-watch([showOnlyMyGroups, showOnlyMySpecialties], ([newShowGroups, newShowSpecialties]) => {
-  if (newShowGroups && userGroups.value.length > 0 && selectedGroup.value === '') {
-    selectedGroup.value = userGroups.value[0]
+// Фильтрация по группе пользователя
+const filterByUserGroup = () => {
+  if (currentUser.value) {
+    const userGroup = getFieldValue(currentUser.value, 'group')
+    if (userGroup) {
+      selectedGroup.value = userGroup
+      selectedSpecialty.value = ''
+      selectedProjectType.value = ''
+      applyFilters()
+    }
   }
-  
-  if (newShowSpecialties && userSpecialties.value.length > 0 && selectedSpecialty.value === '') {
-    selectedSpecialty.value = userSpecialties.value[0]
+}
+
+// Фильтрация по специальности пользователя
+const filterByUserSpecialty = () => {
+  if (currentUser.value) {
+    const userSpecialty = getFieldValue(currentUser.value, 'specialty')
+    if (userSpecialty) {
+      selectedSpecialty.value = userSpecialty
+      selectedGroup.value = ''
+      selectedProjectType.value = ''
+      applyFilters()
+    }
   }
-})
+}
+
+// Наблюдаем за изменениями фильтров
+watch([searchQuery, selectedGroup, selectedSpecialty, selectedProjectType], applyFilters)
 
 onMounted(() => {
-  console.log('Компонент Home mounted')
+  console.log('Монтирование компонента Home')
   loadData()
-  
+
   // Слушатель изменения статуса аутентификации
   onAuthStateChanged(auth, (user) => {
-    console.log('Статус аутентификации изменен:', user)
+    console.log('Статус аутентификации:', user ? 'авторизован' : 'не авторизован')
     if (user) {
-      loadUserData(user.uid)
+      loadCurrentUser().then(() => {
+        // Обновляем фильтры после загрузки пользователя
+        applyFilters()
+      })
     } else {
-      userGroups.value = []
-      userSpecialties.value = []
-      showOnlyMyGroups.value = false
-      showOnlyMySpecialties.value = false
+      currentUser.value = null
     }
   })
 })
 </script>
 
 <template>
-  <Header/>
+  <Header />
   <main class="home-page">
     <!-- Баннер с названием -->
     <section class="banner">
@@ -220,268 +314,349 @@ onMounted(() => {
     <!-- Поисковая строка с фильтрами -->
     <section class="search-section">
       <div class="search-container">
-        <input 
-          v-model="searchQuery"
-          type="text" 
-          class="search-input" 
-          placeholder="Поиск по имени, группе, проекту или описанию..."
-        />
+        <input v-model="searchQuery" type="text" class="search-input"
+          placeholder="Поиск по имени, группе, проекту или описанию..." />
         <button @click="clearFilters" class="clear-button">Сбросить</button>
       </div>
-      
-      <!-- Фильтры пользователя -->
-      <div class="user-filters" v-if="userGroups.length > 0 || userSpecialties.length > 0">
-        <label class="filter-checkbox">
-          <input 
-            type="checkbox" 
-            v-model="showOnlyMyGroups" 
-            :disabled="userGroups.length === 0"
-          />
-          Только мои группы
-          <span v-if="userGroups.length > 0">({{ userGroups.join(', ') }})</span>
-          <span v-else class="disabled-text">(не указаны)</span>
-        </label>
-        
-        <label class="filter-checkbox">
-          <input 
-            type="checkbox" 
-            v-model="showOnlyMySpecialties" 
-            :disabled="userSpecialties.length === 0"
-          />
-          Только мои специальности
-          <span v-if="userSpecialties.length > 0">({{ userSpecialties.join(', ') }})</span>
-          <span v-else class="disabled-text">(не указаны)</span>
-        </label>
-      </div>
-      
+
       <div class="filters">
-        <select v-model="selectedGroup" class="filter-select" :disabled="showOnlyMyGroups && userGroups.length > 0">
+        <select v-model="selectedGroup" class="filter-select">
           <option value="">Все группы</option>
           <option v-for="group in groups" :key="group" :value="group">{{ group }}</option>
         </select>
-        
-        <select v-model="selectedSpecialty" class="filter-select" :disabled="showOnlyMySpecialties && userSpecialties.length > 0">
+
+        <select v-model="selectedSpecialty" class="filter-select">
           <option value="">Все специальности</option>
           <option v-for="specialty in specialties" :key="specialty" :value="specialty">{{ specialty }}</option>
         </select>
-        
+
         <select v-model="selectedProjectType" class="filter-select">
           <option value="">Все типы проектов</option>
           <option v-for="type in projectTypes" :key="type" :value="type">{{ type }}</option>
         </select>
+
+        <!-- Кнопки для фильтрации по данным пользователя -->
+        <div class="user-filters" v-if="currentUser">
+          <button @click="filterByUserGroup" class="user-filter-button group-button" 
+                  v-if="getFieldValue(currentUser, 'group')">
+            Моя группа: {{ getFieldValue(currentUser, 'group') }}
+          </button>
+          <button @click="filterByUserSpecialty" class="user-filter-button specialty-button"
+                  v-if="getFieldValue(currentUser, 'specialty')">
+            Моя специальность: {{ getFieldValue(currentUser, 'specialty') }}
+          </button>
+        </div>
       </div>
-      
+
       <!-- Информация о результатах -->
-      <div class="results-info" v-if="projects.length">
-        <p>Найдено проектов: {{ filteredProjects.length }} из {{ projects.length }}</p>
-        <p v-if="showOnlyMyGroups" class="filter-info">Фильтр: Мои группы</p>
-        <p v-if="showOnlyMySpecialties" class="filter-info">Фильтр: Мои специальности</p>
+      <div class="results-info" v-if="projects.length > 0">
+        <p class="results-count">Найдено проектов: {{ filteredProjects.length }} из {{ projects.length }}</p>
+        <p class="filter-info" v-if="selectedGroup">Фильтр по группе: {{ selectedGroup }}</p>
+        <p class="filter-info" v-if="selectedSpecialty">Фильтр по специальности: {{ selectedSpecialty }}</p>
+        <p class="user-filter-info" v-if="currentUser && selectedGroup === getFieldValue(currentUser, 'group')">
+          Показаны проекты вашей группы
+        </p>
+        <p class="user-filter-info" v-if="currentUser && selectedSpecialty === getFieldValue(currentUser, 'specialty')">
+          Показаны проекты вашей специальности
+        </p>
       </div>
     </section>
 
     <!-- Лучшие работы -->
     <section class="featured-works">
       <h2 class="section-title">Лучшие работы</h2>
-      
-      <div v-if="isLoading" class="loading">Загрузка проектов...</div>
-      
-      <div v-else-if="!projects.length" class="no-results">
-        <p>Проекты не найдены. Проверьте подключение к Firebase.</p>
+
+      <div v-if="isLoading" class="loading">
+        <p>Загрузка проектов...</p>
+      </div>
+
+      <div v-else-if="projects.length === 0" class="no-results">
+        <p>Проекты не найдены в базе данных.</p>
         <button @click="loadData" class="clear-button">Попробовать снова</button>
       </div>
-      
-      <div v-else-if="!filteredProjects.length" class="no-results">
-        <p>Проекты не найдены. Попробуйте изменить параметры поиска.</p>
+
+      <div v-else-if="filteredProjects.length === 0" class="no-results">
+        <p>Проекты не найдены по выбранным фильтрам.</p>
         <button @click="clearFilters" class="clear-button">Сбросить фильтры</button>
       </div>
-      
+
       <div v-else class="works-grid">
-        <ProjectCard 
-          v-for="project in filteredProjects" 
-          :key="project.id"
-          :project="project"
-          @click="goToProjectDetail(project.id)"
-        />
+        <div v-for="project in filteredProjects" :key="project.id" class="project-card"
+          @click="goToProjectDetail(project.id)">
+          <div class="project-image" v-if="project.images && project.images.length">
+            <img :src="project.images[0]" :alt="project.title" />
+          </div>
+          <div class="project-info">
+            <h3 class="project-title">{{ project.title || 'Без названия' }}</h3>
+            <p class="project-author">Автор: {{ project.authorName || 'Неизвестен' }}</p>
+            <p class="project-group" v-if="project.group">Группа: {{ project.group }}</p>
+            <p class="project-specialty" v-if="project.specialty">Специальность: {{ project.specialty }}</p>
+            <p class="project-type">Тип: {{ project.type || 'Не указан' }}</p>
+            <div class="project-stats">
+              <span class="views">👁️ {{ project.views || 0 }}</span>
+              <span class="likes">❤️ {{ project.likes || 0 }}</span>
+              <span class="rating">⭐ {{ project.ratingCount ? (project.totalRating / project.ratingCount).toFixed(1) :
+                '0.0' }}</span>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   </main>
-  <Footer/>
+  <Footer />
 </template>
 
 <style scoped>
-.home-page {
-  min-height: 100vh;
-  background-color: #f5f5f5;
-}
 
 .banner {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 3rem 1rem;
   text-align: center;
+  padding: 2rem 0;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  margin-bottom: 2rem;
 }
 
 .banner__title {
   font-size: 2.5rem;
-  font-weight: 700;
-  margin: 0;
+  color: white;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .search-section {
-  background: white;
-  padding: 2rem;
-  margin: 2rem;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 1.5rem;
   border-radius: 12px;
+  margin: 0 2rem 2rem;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 .search-container {
   display: flex;
   gap: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   align-items: center;
 }
 
 .search-input {
   flex: 1;
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   border: 2px solid #e2e8f0;
   border-radius: 8px;
   font-size: 1rem;
+  outline: none;
   transition: border-color 0.3s ease;
 }
 
 .search-input:focus {
-  outline: none;
   border-color: #667eea;
 }
 
 .clear-button {
-  padding: 1rem 1.5rem;
-  background: #ef4444;
+  padding: 0.75rem 1.5rem;
+  background: #667eea;
   color: white;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-weight: 600;
-  transition: background-color 0.3s ease;
+  font-weight: 500;
+  transition: background 0.3s ease;
 }
 
 .clear-button:hover {
-  background: #dc2626;
-}
-
-.user-filters {
-  display: flex;
-  gap: 2rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.filter-checkbox {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-}
-
-.filter-checkbox input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-}
-
-.disabled-text {
-  color: #94a3b8;
-  font-style: italic;
+  background: #5a67d8;
 }
 
 .filters {
   display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
   flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
 }
 
 .filter-select {
-  padding: 0.75rem 1rem;
+  padding: 0.75rem;
   border: 2px solid #e2e8f0;
   border-radius: 8px;
   background: white;
-  font-size: 1rem;
-  min-width: 200px;
+  font-size: 0.9rem;
+  min-width: 180px;
+  outline: none;
+  transition: border-color 0.3s ease;
 }
 
-.filter-select:disabled {
-  background: #f1f5f9;
-  color: #94a3b8;
-  cursor: not-allowed;
+.filter-select:focus {
+  border-color: #667eea;
+}
+
+.user-filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.user-filter-button {
+  padding: 0.6rem 1rem;
+  border: 2px solid;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  outline: none;
+}
+
+.user-filter-button.group-button {
+  background: rgba(102, 126, 234, 0.1);
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.user-filter-button.group-button:hover {
+  background: #667eea;
+  color: white;
+}
+
+.user-filter-button.specialty-button {
+  background: rgba(118, 75, 162, 0.1);
+  border-color: #764ba2;
+  color: #764ba2;
+}
+
+.user-filter-button.specialty-button:hover {
+  background: #764ba2;
+  color: white;
 }
 
 .results-info {
-  background: #f8fafc;
   padding: 1rem;
+  background: #f7fafc;
   border-radius: 8px;
   border-left: 4px solid #667eea;
 }
 
-.results-info p {
-  margin: 0.25rem 0;
-  color: #475569;
+.results-count {
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
 }
 
 .filter-info {
-  font-weight: 600;
-  color: #667eea !important;
+  color: #4a5568;
+  font-size: 0.9rem;
+  margin: 0.25rem 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid #cbd5e0;
+}
+
+.user-filter-info {
+  color: #667eea;
+  font-weight: 500;
+  font-size: 0.9rem;
+  margin: 0.25rem 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid #667eea;
 }
 
 .featured-works {
-  padding: 2rem;
+  padding: 0 2rem 2rem;
 }
 
 .section-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #1e293b;
-  margin-bottom: 2rem;
   text-align: center;
+  color: white;
+  font-size: 2rem;
+  margin-bottom: 2rem;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .loading, .no-results {
   text-align: center;
   padding: 3rem;
-  color: #64748b;
-  font-size: 1.1rem;
-}
-
-.no-results {
-  background: white;
+  background: rgba(255, 255, 255, 0.95);
   border-radius: 12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  color: #4a5568;
 }
 
 .works-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 2rem;
-  margin-top: 2rem;
+  gap: 1.5rem;
+}
+
+.project-card {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.project-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.project-image img {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+}
+
+.project-info {
+  padding: 1.5rem;
+}
+
+.project-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 0.75rem;
+}
+
+.project-author, .project-group, .project-specialty, .project-type {
+  color: #4a5568;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.project-stats {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.project-stats span {
+  font-size: 0.85rem;
+  color: #718096;
 }
 
 @media (max-width: 768px) {
-  .search-container {
-    flex-direction: column;
+  .search-section {
+    margin: 0 1rem 1.5rem;
+    padding: 1rem;
   }
   
   .filters {
     flex-direction: column;
+    align-items: stretch;
   }
   
   .filter-select {
-    min-width: 100%;
+    min-width: auto;
+    width: 100%;
   }
   
   .user-filters {
-    flex-direction: column;
-    gap: 1rem;
+    justify-content: center;
+  }
+  
+  .featured-works {
+    padding: 0 1rem 1.5rem;
   }
   
   .works-grid {
