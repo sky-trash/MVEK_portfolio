@@ -6,7 +6,6 @@ import {
   getDocs, 
   query, 
   orderBy,
-  where,
   doc,
   getDoc
 } from 'firebase/firestore'
@@ -35,18 +34,18 @@ const selectedProjectType = ref('')
 const showOnlyMyGroups = ref(false)
 const showOnlyMySpecialties = ref(false)
 
+// Состояние загрузки
+const isLoading = ref(true)
+
 // Загрузка данных пользователя
 const loadUserData = async (userId: string) => {
   try {
     const userDoc = await getDoc(doc(db, 'users', userId))
     if (userDoc.exists()) {
       const userData = userDoc.data()
-      userGroups.value = userData.groups || []
-      userSpecialties.value = userData.specialties || []
-      console.log('Данные пользователя загружены:', { 
-        groups: userGroups.value, 
-        specialties: userSpecialties.value 
-      })
+      userGroups.value = userData.group ? [userData.group] : []
+      userSpecialties.value = userData.specialty ? [userData.specialty] : []
+      console.log('Данные пользователя загружены:', userData)
     }
   } catch (error) {
     console.error('Ошибка загрузки данных пользователя:', error)
@@ -56,6 +55,9 @@ const loadUserData = async (userId: string) => {
 // Загрузка данных из Firebase
 const loadData = async () => {
   try {
+    isLoading.value = true
+    console.log('Начинаем загрузку данных...')
+
     // Загрузка проектов
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
     const projectsSnapshot = await getDocs(projectsQuery)
@@ -64,21 +66,61 @@ const loadData = async () => {
       ...doc.data()
     }))
     console.log('Загружено проектов:', projects.value.length)
+    console.log('Пример проекта:', projects.value[0])
 
-    // Загрузка групп, специальностей и типов проектов
-    const groupsSnapshot = await getDocs(collection(db, 'groups'))
-    groups.value = groupsSnapshot.docs.map(doc => doc.data().name)
-    console.log('Загружено групп:', groups.value)
+    // Загрузка групп из коллекции groups
+    try {
+      const groupsSnapshot = await getDocs(collection(db, 'groups'))
+      groups.value = groupsSnapshot.docs
+        .map(doc => doc.data().name)
+        .filter(name => name && name.trim() !== '')
+      console.log('Загружено групп из коллекции:', groups.value)
+    } catch (error) {
+      console.log('Коллекция groups не найдена, извлекаем группы из проектов')
+      const uniqueGroups = new Set<string>()
+      projects.value.forEach(project => {
+        if (project.group && project.group.trim() !== '') {
+          uniqueGroups.add(project.group)
+        }
+      })
+      groups.value = Array.from(uniqueGroups)
+    }
 
-    const specialtiesSnapshot = await getDocs(collection(db, 'specialties'))
-    specialties.value = specialtiesSnapshot.docs.map(doc => doc.data().name)
-    console.log('Загружено специальностей:', specialties.value)
+    // Загрузка специальностей из коллекции specialties
+    try {
+      const specialtiesSnapshot = await getDocs(collection(db, 'specialties'))
+      specialties.value = specialtiesSnapshot.docs
+        .map(doc => doc.data().name)
+        .filter(name => name && name.trim() !== '')
+      console.log('Загружено специальностей из коллекции:', specialties.value)
+    } catch (error) {
+      console.log('Коллекция specialties не найдена, извлекаем специальности из проектов')
+      const uniqueSpecialties = new Set<string>()
+      projects.value.forEach(project => {
+        if (project.specialty && project.specialty.trim() !== '') {
+          uniqueSpecialties.add(project.specialty)
+        }
+      })
+      specialties.value = Array.from(uniqueSpecialties)
+    }
 
-    const typesSnapshot = await getDocs(collection(db, 'projectTypes'))
-    projectTypes.value = typesSnapshot.docs.map(doc => doc.data().name)
-    console.log('Загружено типов проектов:', projectTypes.value)
+    // Извлекаем типы проектов из самих проектов
+    const uniqueTypes = new Set<string>()
+    projects.value.forEach(project => {
+      if (project.type && project.type.trim() !== '') {
+        uniqueTypes.add(project.type)
+      }
+    })
+    projectTypes.value = Array.from(uniqueTypes)
+    
+    console.log('Уникальные группы:', groups.value)
+    console.log('Уникальные специальности:', specialties.value)
+    console.log('Уникальные типы проектов:', projectTypes.value)
+
   } catch (error) {
     console.error('Ошибка загрузки данных:', error)
+  } finally {
+    isLoading.value = false
   }
 }
 
@@ -92,7 +134,7 @@ const filteredProjects = computed(() => {
     // Поиск по нескольким полям
     const matchesSearch = searchTerm === '' || 
       (project.title && project.title.toLowerCase().includes(searchTerm)) ||
-      (project.author && project.author.toLowerCase().includes(searchTerm)) ||
+      (project.authorName && project.authorName.toLowerCase().includes(searchTerm)) ||
       (project.group && project.group.toLowerCase().includes(searchTerm)) ||
       (project.description && project.description.toLowerCase().includes(searchTerm)) ||
       (project.specialty && project.specialty.toLowerCase().includes(searchTerm))
@@ -149,10 +191,12 @@ watch([showOnlyMyGroups, showOnlyMySpecialties], ([newShowGroups, newShowSpecial
 })
 
 onMounted(() => {
+  console.log('Компонент Home mounted')
   loadData()
   
   // Слушатель изменения статуса аутентификации
   onAuthStateChanged(auth, (user) => {
+    console.log('Статус аутентификации изменен:', user)
     if (user) {
       loadUserData(user.uid)
     } else {
@@ -181,7 +225,6 @@ onMounted(() => {
           type="text" 
           class="search-input" 
           placeholder="Поиск по имени, группе, проекту или описанию..."
-          @keyup.enter="loadData"
         />
         <button @click="clearFilters" class="clear-button">Сбросить</button>
       </div>
@@ -240,7 +283,12 @@ onMounted(() => {
     <section class="featured-works">
       <h2 class="section-title">Лучшие работы</h2>
       
-      <div v-if="!projects.length" class="loading">Загрузка проектов...</div>
+      <div v-if="isLoading" class="loading">Загрузка проектов...</div>
+      
+      <div v-else-if="!projects.length" class="no-results">
+        <p>Проекты не найдены. Проверьте подключение к Firebase.</p>
+        <button @click="loadData" class="clear-button">Попробовать снова</button>
+      </div>
       
       <div v-else-if="!filteredProjects.length" class="no-results">
         <p>Проекты не найдены. Попробуйте изменить параметры поиска.</p>
@@ -259,6 +307,188 @@ onMounted(() => {
   </main>
   <Footer/>
 </template>
+
+<style scoped>
+.home-page {
+  min-height: 100vh;
+  background-color: #f5f5f5;
+}
+
+.banner {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 3rem 1rem;
+  text-align: center;
+}
+
+.banner__title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.search-section {
+  background: white;
+  padding: 2rem;
+  margin: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.search-container {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  align-items: center;
+}
+
+.search-input {
+  flex: 1;
+  padding: 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: border-color 0.3s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.clear-button {
+  padding: 1rem 1.5rem;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.3s ease;
+}
+
+.clear-button:hover {
+  background: #dc2626;
+}
+
+.user-filters {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.filter-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.disabled-text {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.filters {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-select {
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  font-size: 1rem;
+  min-width: 200px;
+}
+
+.filter-select:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.results-info {
+  background: #f8fafc;
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.results-info p {
+  margin: 0.25rem 0;
+  color: #475569;
+}
+
+.filter-info {
+  font-weight: 600;
+  color: #667eea !important;
+}
+
+.featured-works {
+  padding: 2rem;
+}
+
+.section-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.loading, .no-results {
+  text-align: center;
+  padding: 3rem;
+  color: #64748b;
+  font-size: 1.1rem;
+}
+
+.no-results {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.works-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 2rem;
+  margin-top: 2rem;
+}
+
+@media (max-width: 768px) {
+  .search-container {
+    flex-direction: column;
+  }
+  
+  .filters {
+    flex-direction: column;
+  }
+  
+  .filter-select {
+    min-width: 100%;
+  }
+  
+  .user-filters {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .works-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
 <style scoped>
 @import "./home.scss";
 </style>
