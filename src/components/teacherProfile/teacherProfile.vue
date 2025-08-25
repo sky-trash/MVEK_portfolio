@@ -2,6 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProjectCard from '@/components/projectCard/projectCard.vue'
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
+import { db } from '@/firebase'
 
 interface Group {
   id: string
@@ -19,6 +21,7 @@ interface Project {
 
 interface Teacher {
   id: string
+  userId: string
   name: string
   position: string
   avatar?: string
@@ -34,42 +37,47 @@ interface Teacher {
 
 const route = useRoute()
 const router = useRouter()
+const userStore = useUserStore()
 const teacher = ref<Teacher | null>(null)
 const loading = ref(true)
+const isOwnProfile = ref(false)
 
 const fetchTeacherData = async (id: string) => {
-  // Заглушка данных - в реальном приложении замените на API запрос
-  return {
-    id,
-    name: 'Иванова Мария Сергеевна',
-    position: 'Старший преподаватель',
-    avatar: '/teacher-avatar.jpg',
-    isVerified: true,
-    rating: 4.7,
-    bio: 'Специалист в области графического дизайна с 15-летним опытом. Курирует дипломные проекты по направлению "Цифровой дизайн".',
-    experience: 15,
-    specialization: 'Графический дизайн, UX/UI',
-    email: 'i.ivanova@mvek.edu',
-    groups: [
-      { id: 'diz-201', name: 'ДИЗ-201', studentCount: 24 },
-      { id: 'diz-301', name: 'ДИЗ-301', studentCount: 18 }
-    ],
-    projects: [
-      {
-        id: '1',
-        title: 'Мобильное приложение для музея',
-        previewImage: '/project1.jpg',
-        type: 'UX/UI дизайн',
-        rating: 4.8
-      },
-      {
-        id: '2',
-        title: 'Фирменный стиль кофейни',
-        previewImage: '/project2.jpg',
-        type: 'Брендинг',
-        rating: 4.5
-      }
-    ]
+  try {
+    // Получаем данные преподавателя из Firestore
+    const teacherDoc = await getDoc(doc(db, 'teachers', id))
+    
+    if (!teacherDoc.exists()) {
+      throw new Error('Преподаватель не найден')
+    }
+
+    const teacherData = teacherDoc.data()
+    
+    // Получаем группы преподавателя
+    const groupsQuery = query(collection(db, 'groups'), where('teacherId', '==', id))
+    const groupsSnapshot = await getDocs(groupsQuery)
+    const groups = groupsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Group[]
+
+    // Получаем проекты преподавателя
+    const projectsQuery = query(collection(db, 'projects'), where('teacherId', '==', id))
+    const projectsSnapshot = await getDocs(projectsQuery)
+    const projects = projectsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Project[]
+
+    return {
+      id: teacherDoc.id,
+      ...teacherData,
+      groups,
+      projects
+    } as Teacher
+  } catch (error) {
+    console.error('Ошибка загрузки данных преподавателя:', error)
+    throw error
   }
 }
 
@@ -77,6 +85,11 @@ onMounted(async () => {
   try {
     const teacherId = route.params.id as string
     teacher.value = await fetchTeacherData(teacherId)
+    
+    // Проверяем, является ли это профиль текущего пользователя
+    if (userStore.user && userStore.user.userId === teacher.value.userId) {
+      isOwnProfile.value = true
+    }
   } catch (error) {
     console.error('Ошибка загрузки данных:', error)
   } finally {
@@ -87,7 +100,12 @@ onMounted(async () => {
 const navigateToProject = (projectId: string) => {
   router.push(`/projects/${projectId}`)
 }
+
+const editProfile = () => {
+  router.push(`/teacher/${route.params.id}/edit`)
+}
 </script>
+
 <template>
   <div class="teacher-profile-container">
     <div v-if="loading" class="loading-spinner">
@@ -107,7 +125,12 @@ const navigateToProject = (projectId: string) => {
         </div>
         
         <div class="profile-info">
-          <h1 class="teacher-name">{{ teacher.name }}</h1>
+          <div class="name-and-actions">
+            <h1 class="teacher-name">{{ teacher.name }}</h1>
+            <button v-if="isOwnProfile" @click="editProfile" class="edit-button">
+              Редактировать профиль
+            </button>
+          </div>
           <p class="teacher-position">{{ teacher.position }}</p>
           
           <div class="rating-container">
@@ -115,7 +138,7 @@ const navigateToProject = (projectId: string) => {
               <span 
                 v-for="n in 5" 
                 :key="n" 
-                :class="['star', { 'filled': n <= teacher.rating }]"
+                :class="['star', { 'filled': n <= Math.round(teacher.rating) }]"
               >★</span>
             </div>
             <span class="rating-value">{{ teacher.rating.toFixed(1) }}</span>
@@ -127,7 +150,7 @@ const navigateToProject = (projectId: string) => {
       <div class="profile-content">
         <section class="about-section">
           <h2>О преподавателе</h2>
-          <p class="bio">{{ teacher.bio }}</p>
+          <p class="bio">{{ teacher.bio || 'Информация о преподавателе пока не добавлена.' }}</p>
           
           <div class="details-grid">
             <div class="detail-item">
@@ -136,7 +159,7 @@ const navigateToProject = (projectId: string) => {
             </div>
             <div class="detail-item">
               <span class="detail-label">Специализация:</span>
-              <span class="detail-value">{{ teacher.specialization }}</span>
+              <span class="detail-value">{{ teacher.specialization || 'Не указана' }}</span>
             </div>
             <div class="detail-item">
               <span class="detail-label">Email:</span>
@@ -146,7 +169,7 @@ const navigateToProject = (projectId: string) => {
         </section>
 
         <!-- Курируемые группы -->
-        <section class="groups-section">
+        <section class="groups-section" v-if="teacher.groups && teacher.groups.length > 0">
           <h2>Курируемые группы</h2>
           <div class="groups-grid">
             <router-link
@@ -155,14 +178,14 @@ const navigateToProject = (projectId: string) => {
               :to="`/students?group=${group.id}`"
               class="group-card"
             >
-              {{ group.name }}
+              <span class="group-name">{{ group.name }}</span>
               <span class="student-count">{{ group.studentCount }} студентов</span>
             </router-link>
           </div>
         </section>
 
         <!-- Студенческие проекты -->
-        <section class="projects-section">
+        <section class="projects-section" v-if="teacher.projects && teacher.projects.length > 0">
           <h2>Руководство проектами</h2>
           <div class="projects-grid">
             <project-card
@@ -173,11 +196,20 @@ const navigateToProject = (projectId: string) => {
             />
           </div>
         </section>
+
+        <!-- Сообщение, если нет групп или проектов -->
+        <div v-if="(!teacher.groups || teacher.groups.length === 0) && 
+                  (!teacher.projects || teacher.projects.length === 0)" 
+             class="empty-state">
+          <h3>Пока нет информации</h3>
+          <p>Группы и проекты появятся здесь после их добавления.</p>
+        </div>
       </div>
     </div>
     
     <div v-else class="not-found-message">
-      Преподаватель не найден
+      <h3>Преподаватель не найден</h3>
+      <p>Запрошенный профиль преподавателя не существует или был удален.</p>
       <router-link to="/teachers" class="back-link">← К списку преподавателей</router-link>
     </div>
   </div>

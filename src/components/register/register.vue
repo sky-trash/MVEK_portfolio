@@ -18,7 +18,8 @@ const formData = ref({
   name: '',
   surname: '',
   lname: '',
-  agreeTerms: false
+  agreeTerms: false,
+  role: 'student' // Добавляем поле для выбора роли
 });
 
 // Состояние загрузки и ошибок
@@ -88,15 +89,13 @@ const handleRegister = async () => {
       formData.value.password
     );
 
-    // 3. Сохранение данных пользователя
-    const userData = {
+    // 3. Подготовка данных пользователя
+    const userData: any = {
       userId: userCredential.user.uid,
       login: formData.value.login,
       email: formData.value.email,
-      group: formData.value.group,
-      specialty: formData.value.specialty,
       avatarUrl: '', // Пустая строка вместо аватара
-      role: 'student',
+      role: formData.value.role,
       name: formData.value.name,
       surname: formData.value.surname,
       lname: formData.value.lname,
@@ -104,13 +103,47 @@ const handleRegister = async () => {
       updatedAt: new Date()
     };
 
-    await addDoc(collection(db, 'users'), userData);
+    // Добавляем поля в зависимости от роли
+    if (formData.value.role === 'student') {
+      userData.group = formData.value.group;
+      userData.specialty = formData.value.specialty;
+      
+      // Сохранение данных студента
+      await addDoc(collection(db, 'users'), userData);
+      
+      // 5. Отправка подтверждения
+      await sendEmailVerification(userCredential.user);
 
-    // 4. Отправка подтверждения
-    await sendEmailVerification(userCredential.user);
+      // 6. Успешное завершение
+      router.push('/profile');
+    } else {
+      // Для преподавателя создаем профиль в коллекции teachers
+      const teacherData = {
+        userId: userCredential.user.uid,
+        name: `${formData.value.surname} ${formData.value.name} ${formData.value.lname || ''}`.trim(),
+        position: 'Преподаватель',
+        isVerified: false,
+        rating: 0,
+        bio: '',
+        experience: 0,
+        specialization: '',
+        email: formData.value.email,
+        groups: [],
+        projects: []
+      };
+      
+      // Сохраняем пользователя в коллекции users
+      await addDoc(collection(db, 'users'), userData);
+      
+      // Сохраняем профиль преподавателя в коллекции teachers
+      const teacherDocRef = await addDoc(collection(db, 'teachers'), teacherData);
+      
+      // 5. Отправка подтверждения
+      await sendEmailVerification(userCredential.user);
 
-    // 5. Успешное завершение
-    router.push('/profile');
+      // 6. Перенаправляем на страницу профиля преподавателя
+      router.push(`/teacherProfile/${teacherDocRef.id}`);
+    }
 
   } catch (error) {
     console.error('Ошибка регистрации:', error);
@@ -143,9 +176,12 @@ const validateForm = () => {
     return false;
   }
 
-  if (!formData.value.group || !formData.value.specialty) {
-    errorMessage.value = 'Выберите группу и специальность';
-    return false;
+  // Для студентов проверяем группу и специальность
+  if (formData.value.role === 'student') {
+    if (!formData.value.group || !formData.value.specialty) {
+      errorMessage.value = 'Выберите группу и специальность';
+      return false;
+    }
   }
 
   return true;
@@ -195,6 +231,31 @@ onMounted(() => {
         </div>
 
         <form @submit.prevent="handleRegister" class="auth-form">
+          <!-- Выбор роли -->
+          <div class="form-group">
+            <label class="form-label">Регистрируюсь как*</label>
+            <div class="role-selector">
+              <label class="role-option">
+                <input 
+                  type="radio" 
+                  v-model="formData.role" 
+                  value="student" 
+                  class="role-input"
+                />
+                <span class="role-label">Студент</span>
+              </label>
+              <label class="role-option">
+                <input 
+                  type="radio" 
+                  v-model="formData.role" 
+                  value="teacher" 
+                  class="role-input"
+                />
+                <span class="role-label">Преподаватель</span>
+              </label>
+            </div>
+          </div>
+
           <div class="form-group">
             <label for="login" class="form-label">Логин*</label>
             <input v-model="formData.login" type="text" id="login" class="form-input" placeholder="Придумайте логин"
@@ -235,7 +296,8 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="form-row">
+          <!-- Поля только для студентов -->
+          <div v-if="formData.role === 'student'" class="form-row">
             <div class="form-group">
               <label for="group" class="form-label">Группа*</label>
               <select v-model="formData.group" id="group" class="form-input" :disabled="isDataLoading" required>
@@ -307,6 +369,247 @@ onMounted(() => {
   </main>
 </template>
 
+<style scoped>
+
+.auth-card {
+  flex: 1;
+  padding: 40px;
+}
+
+.auth-hero {
+  flex: 0 0 40%;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.hero-content {
+  text-align: center;
+}
+
+.hero-title {
+  font-size: 28px;
+  margin-bottom: 16px;
+  font-weight: 700;
+}
+
+.hero-description {
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.auth-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 8px;
+}
+
+.auth-subtitle {
+  color: #6b7280;
+  font-size: 16px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-label {
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #374151;
+  font-size: 14px;
+}
+
+.form-input {
+  padding: 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 16px;
+  transition: border-color 0.2s;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+}
+
+.form-input:disabled {
+  background-color: #f3f4f6;
+  cursor: not-allowed;
+}
+
+/* Стили для выбора роли */
+.role-selector {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.role-option {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 12px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.role-option:hover {
+  border-color: #4f46e5;
+}
+
+.role-input {
+  margin-right: 8px;
+}
+
+.role-input:checked + .role-label {
+  color: #4f46e5;
+  font-weight: 500;
+}
+
+.role-input:checked ~ .role-label {
+  color: #4f46e5;
+  font-weight: 500;
+}
+
+.role-label {
+  font-size: 16px;
+  color: #374151;
+}
+
+/* Чекбокс */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.checkbox-input {
+  margin-right: 8px;
+}
+
+.terms-link {
+  color: #4f46e5;
+  text-decoration: none;
+}
+
+.terms-link:hover {
+  text-decoration: underline;
+}
+
+/* Кнопка */
+.auth-button {
+  background-color: #4f46e5;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.auth-button:hover:not(:disabled) {
+  background-color: #4338ca;
+}
+
+.auth-button:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Ошибка */
+.error-message {
+  background-color: #fee2e2;
+  color: #ef4444;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/* Футер */
+.auth-footer {
+  text-align: center;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.auth-footer-text {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.auth-footer-link {
+  color: #4f46e5;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .auth-container {
+    flex-direction: column;
+  }
+  
+  .auth-hero {
+    display: none;
+  }
+  
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+  
+  .role-selector {
+    flex-direction: column;
+  }
+}
+</style>
 <style scoped>
 @import "./register.scss";
 </style>

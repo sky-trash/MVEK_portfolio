@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { collection, getDocs, query, orderBy, where } from 'firebase/firestore'
 import { db } from '@/firebase'
@@ -12,7 +12,6 @@ const auth = getAuth()
 
 // Данные
 const projects = ref<any[]>([])
-const filteredProjects = ref<any[]>([])
 const currentUser = ref<any>(null)
 const allUsers = ref<any[]>([])
 
@@ -30,18 +29,20 @@ const groups = ref<string[]>([])
 const specialties = ref<string[]>([])
 const projectTypes = ref<string[]>([])
 
-// Вспомогательная функция для извлечения значений из данных Firebase
-const getFieldValue = (data: any, fieldName: string): string => {
-  if (!data) return ''
-
-  // Пытаемся получить значение разными способами
-  const value = data[fieldName] ||
-    data[fieldName?.toLowerCase()] ||
-    data[fieldName?.toUpperCase()] ||
-    data[fieldName?.charAt(0).toLowerCase() + fieldName?.slice(1)] ||
-    ''
-
-  return typeof value === 'string' ? value : String(value)
+// Вспомогательная функция для безопасного получения значений
+const getSafeValue = (obj: any, key: string): string => {
+  if (!obj || typeof obj !== 'object') return ''
+  
+  // Проверяем различные варианты написания ключа
+  const keys = Object.keys(obj)
+  const foundKey = keys.find(k => k.toLowerCase() === key.toLowerCase())
+  
+  if (foundKey) {
+    const value = obj[foundKey]
+    return value ? String(value).trim() : ''
+  }
+  
+  return ''
 }
 
 // Нормализация строки для сравнения
@@ -49,7 +50,7 @@ const normalizeString = (str: string): string => {
   return str ? str.toString().toLowerCase().trim().replace(/\s+/g, ' ') : ''
 }
 
-// Загрузка всех пользователей для получения всех групп и специальностей
+// Загрузка всех пользователей
 const loadAllUsers = async () => {
   try {
     const usersQuery = query(collection(db, 'users'))
@@ -60,8 +61,6 @@ const loadAllUsers = async () => {
         id: doc.id,
         ...doc.data()
       }))
-      
-      console.log('Загружено пользователей:', allUsers.value.length)
     }
   } catch (error) {
     console.error('Ошибка загрузки пользователей:', error)
@@ -82,103 +81,81 @@ const loadCurrentUser = async () => {
         id: usersSnapshot.docs[0].id,
         ...usersSnapshot.docs[0].data()
       }
-      console.log('Текущий пользователь:', currentUser.value)
     }
   } catch (error) {
     console.error('Ошибка загрузки пользователя:', error)
   }
 }
 
-// Загрузка данных из Firebase
-const loadData = async () => {
+// Загрузка проектов
+const loadProjects = async () => {
   try {
-    isLoading.value = true
-    console.log('Загрузка данных...')
-
-    // Загрузка проектов
     const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
     const projectsSnapshot = await getDocs(projectsQuery)
 
     if (projectsSnapshot.empty) {
-      console.log('Нет проектов в базе данных')
       projects.value = []
-      filteredProjects.value = []
     } else {
       projects.value = projectsSnapshot.docs.map(doc => {
         const data = doc.data()
-        const group = getFieldValue(data, 'group')
-        const specialty = getFieldValue(data, 'specialty')
-        
-        console.log('Проект:', {
-          id: doc.id,
-          title: getFieldValue(data, 'title'),
-          group: group,
-          specialty: specialty,
-          rawGroup: data.group,
-          rawSpecialty: data.specialty
-        })
-
         return {
           id: doc.id,
           ...data,
-          // Нормализуем поля
-          group: group,
-          specialty: specialty,
-          type: getFieldValue(data, 'type'),
-          title: getFieldValue(data, 'title'),
-          authorName: getFieldValue(data, 'authorName'),
-          description: getFieldValue(data, 'description')
+          title: getSafeValue(data, 'title') || 'Без названия',
+          authorName: getSafeValue(data, 'authorName') || 'Неизвестен',
+          group: getSafeValue(data, 'group'),
+          specialty: getSafeValue(data, 'specialty'),
+          type: getSafeValue(data, 'type'),
+          description: getSafeValue(data, 'description'),
+          images: Array.isArray(data.images) ? data.images : [],
+          views: Number(data.views) || 0,
+          likes: Number(data.likes) || 0,
+          totalRating: Number(data.totalRating) || 0,
+          ratingCount: Number(data.ratingCount) || 0
         }
       })
-
-      console.log('Загружено проектов:', projects.value.length)
     }
+  } catch (error) {
+    console.error('Ошибка загрузки проектов:', error)
+    projects.value = []
+  }
+}
 
-    // Извлекаем уникальные значения для фильтров из проектов
+// Загрузка всех данных
+const loadData = async () => {
+  try {
+    isLoading.value = true
+    
+    await Promise.all([
+      loadProjects(),
+      loadAllUsers(),
+      loadCurrentUser()
+    ])
+
+    // Собираем уникальные значения для фильтров
     const uniqueGroups = new Set<string>()
     const uniqueSpecialties = new Set<string>()
     const uniqueTypes = new Set<string>()
 
+    // Добавляем значения из проектов
     projects.value.forEach(project => {
-      if (project.group && project.group.trim() !== '') {
-        uniqueGroups.add(project.group.trim())
-      }
-      if (project.specialty && project.specialty.trim() !== '') {
-        uniqueSpecialties.add(project.specialty.trim())
-      }
-      if (project.type && project.type.trim() !== '') {
-        uniqueTypes.add(project.type.trim())
-      }
+      if (project.group) uniqueGroups.add(project.group)
+      if (project.specialty) uniqueSpecialties.add(project.specialty)
+      if (project.type) uniqueTypes.add(project.type)
     })
 
-    // Загружаем пользователей для получения всех групп и специальностей
-    await loadAllUsers()
-    
-    // Добавляем группы и специальности из пользователей
+    // Добавляем значения из пользователей
     allUsers.value.forEach(user => {
-      const userGroup = getFieldValue(user, 'group')
-      const userSpecialty = getFieldValue(user, 'specialty')
+      const userGroup = getSafeValue(user, 'group')
+      const userSpecialty = getSafeValue(user, 'specialty')
       
-      if (userGroup && userGroup.trim() !== '') {
-        uniqueGroups.add(userGroup.trim())
-      }
-      if (userSpecialty && userSpecialty.trim() !== '') {
-        uniqueSpecialties.add(userSpecialty.trim())
-      }
+      if (userGroup) uniqueGroups.add(userGroup)
+      if (userSpecialty) uniqueSpecialties.add(userSpecialty)
     })
 
     groups.value = Array.from(uniqueGroups).sort((a, b) => a.localeCompare(b))
     specialties.value = Array.from(uniqueSpecialties).sort((a, b) => a.localeCompare(b))
     projectTypes.value = Array.from(uniqueTypes).sort((a, b) => a.localeCompare(b))
-
-    console.log('Все группы:', groups.value)
-    console.log('Все специальности:', specialties.value)
-
-    // Загружаем текущего пользователя
-    await loadCurrentUser()
-
-    // Применяем фильтры
-    applyFilters()
 
   } catch (error) {
     console.error('Ошибка загрузки данных:', error)
@@ -187,59 +164,37 @@ const loadData = async () => {
   }
 }
 
-// Применение фильтров
-const applyFilters = () => {
-  if (projects.value.length === 0) {
-    filteredProjects.value = []
-    return
-  }
+// Вычисляем отфильтрованные проекты
+const filteredProjects = computed(() => {
+  if (projects.value.length === 0) return []
 
   const searchTerm = normalizeString(searchQuery.value)
 
-  filteredProjects.value = projects.value.filter(project => {
+  return projects.value.filter(project => {
     // Поиск по нескольким полям
     const matchesSearch = searchTerm === '' ||
-      (project.title && normalizeString(project.title).includes(searchTerm)) ||
-      (project.authorName && normalizeString(project.authorName).includes(searchTerm)) ||
-      (project.group && normalizeString(project.group).includes(searchTerm)) ||
-      (project.description && normalizeString(project.description).includes(searchTerm)) ||
-      (project.specialty && normalizeString(project.specialty).includes(searchTerm))
+      normalizeString(project.title).includes(searchTerm) ||
+      normalizeString(project.authorName).includes(searchTerm) ||
+      normalizeString(project.group).includes(searchTerm) ||
+      normalizeString(project.description).includes(searchTerm) ||
+      normalizeString(project.specialty).includes(searchTerm)
 
-    // Фильтрация по группе (точное совпадение)
+    // Фильтрация по группе
     const matchesGroup = selectedGroup.value === '' ||
-      (project.group && normalizeString(project.group) === normalizeString(selectedGroup.value))
+      normalizeString(project.group) === normalizeString(selectedGroup.value)
 
-    // Фильтрация по специальности (точное совпадение)
+    // Фильтрация по специальности
     const matchesSpecialty = selectedSpecialty.value === '' ||
-      (project.specialty && normalizeString(project.specialty) === normalizeString(selectedSpecialty.value))
+      normalizeString(project.specialty) === normalizeString(selectedSpecialty.value)
 
     // Фильтрация по типу проекта
     const matchesProjectType = selectedProjectType.value === '' ||
-      (project.type && normalizeString(project.type) === normalizeString(selectedProjectType.value))
+      normalizeString(project.type) === normalizeString(selectedProjectType.value)
 
-    const result = matchesSearch && matchesGroup && matchesSpecialty && matchesProjectType
-    
-    if (result) {
-      console.log('Проект подходит:', {
-        title: project.title,
-        group: project.group,
-        specialty: project.specialty,
-        search: searchTerm,
-        selectedGroup: selectedGroup.value,
-        selectedSpecialty: selectedSpecialty.value
-      })
-    }
-
-    return result
+    return matchesSearch && matchesGroup && matchesSpecialty && matchesProjectType
   })
+})
 
-  console.log('Отфильтровано проектов:', filteredProjects.value.length)
-  console.log('Активные фильтры:', {
-    группа: selectedGroup.value,
-    специальность: selectedSpecialty.value,
-    тип: selectedProjectType.value
-  })
-}
 
 // Переход на детальную страницу
 const goToProjectDetail = (projectId: string) => {
@@ -252,18 +207,16 @@ const clearFilters = () => {
   selectedGroup.value = ''
   selectedSpecialty.value = ''
   selectedProjectType.value = ''
-  applyFilters()
 }
 
 // Фильтрация по группе пользователя
 const filterByUserGroup = () => {
   if (currentUser.value) {
-    const userGroup = getFieldValue(currentUser.value, 'group')
+    const userGroup = getSafeValue(currentUser.value, 'group')
     if (userGroup) {
       selectedGroup.value = userGroup
       selectedSpecialty.value = ''
       selectedProjectType.value = ''
-      applyFilters()
     }
   }
 }
@@ -271,31 +224,22 @@ const filterByUserGroup = () => {
 // Фильтрация по специальности пользователя
 const filterByUserSpecialty = () => {
   if (currentUser.value) {
-    const userSpecialty = getFieldValue(currentUser.value, 'specialty')
+    const userSpecialty = getSafeValue(currentUser.value, 'specialty')
     if (userSpecialty) {
       selectedSpecialty.value = userSpecialty
       selectedGroup.value = ''
       selectedProjectType.value = ''
-      applyFilters()
     }
   }
 }
 
-// Наблюдаем за изменениями фильтров
-watch([searchQuery, selectedGroup, selectedSpecialty, selectedProjectType], applyFilters)
-
 onMounted(() => {
-  console.log('Монтирование компонента Home')
   loadData()
 
   // Слушатель изменения статуса аутентификации
   onAuthStateChanged(auth, (user) => {
-    console.log('Статус аутентификации:', user ? 'авторизован' : 'не авторизован')
     if (user) {
-      loadCurrentUser().then(() => {
-        // Обновляем фильтры после загрузки пользователя
-        applyFilters()
-      })
+      loadCurrentUser()
     } else {
       currentUser.value = null
     }
@@ -338,12 +282,12 @@ onMounted(() => {
         <!-- Кнопки для фильтрации по данным пользователя -->
         <div class="user-filters" v-if="currentUser">
           <button @click="filterByUserGroup" class="user-filter-button group-button" 
-                  v-if="getFieldValue(currentUser, 'group')">
-            Моя группа: {{ getFieldValue(currentUser, 'group') }}
+                  v-if="getSafeValue(currentUser, 'group')">
+            Моя группа: {{ getSafeValue(currentUser, 'group') }}
           </button>
           <button @click="filterByUserSpecialty" class="user-filter-button specialty-button"
-                  v-if="getFieldValue(currentUser, 'specialty')">
-            Моя специальность: {{ getFieldValue(currentUser, 'specialty') }}
+                  v-if="getSafeValue(currentUser, 'specialty')">
+            Моя специальность: {{ getSafeValue(currentUser, 'specialty') }}
           </button>
         </div>
       </div>
@@ -353,10 +297,10 @@ onMounted(() => {
         <p class="results-count">Найдено проектов: {{ filteredProjects.length }} из {{ projects.length }}</p>
         <p class="filter-info" v-if="selectedGroup">Фильтр по группе: {{ selectedGroup }}</p>
         <p class="filter-info" v-if="selectedSpecialty">Фильтр по специальности: {{ selectedSpecialty }}</p>
-        <p class="user-filter-info" v-if="currentUser && selectedGroup === getFieldValue(currentUser, 'group')">
+        <p class="user-filter-info" v-if="currentUser && selectedGroup === getSafeValue(currentUser, 'group')">
           Показаны проекты вашей группы
         </p>
-        <p class="user-filter-info" v-if="currentUser && selectedSpecialty === getFieldValue(currentUser, 'specialty')">
+        <p class="user-filter-info" v-if="currentUser && selectedSpecialty === getSafeValue(currentUser, 'specialty')">
           Показаны проекты вашей специальности
         </p>
       </div>
@@ -387,16 +331,15 @@ onMounted(() => {
             <img :src="project.images[0]" :alt="project.title" />
           </div>
           <div class="project-info">
-            <h3 class="project-title">{{ project.title || 'Без названия' }}</h3>
-            <p class="project-author">Автор: {{ project.authorName || 'Неизвестен' }}</p>
+            <h3 class="project-title">{{ project.title }}</h3>
+            <p class="project-author">Автор: {{ project.authorName }}</p>
             <p class="project-group" v-if="project.group">Группа: {{ project.group }}</p>
             <p class="project-specialty" v-if="project.specialty">Специальность: {{ project.specialty }}</p>
             <p class="project-type">Тип: {{ project.type || 'Не указан' }}</p>
             <div class="project-stats">
-              <span class="views">👁️ {{ project.views || 0 }}</span>
-              <span class="likes">❤️ {{ project.likes || 0 }}</span>
-              <span class="rating">⭐ {{ project.ratingCount ? (project.totalRating / project.ratingCount).toFixed(1) :
-                '0.0' }}</span>
+              <span class="views">👁️ {{ project.views }}</span>
+              <span class="likes">❤️ {{ project.likes }}</span>
+              <span class="rating">⭐ {{ project.ratingCount ? (project.totalRating / project.ratingCount).toFixed(1) : '0.0' }}</span>
             </div>
           </div>
         </div>
