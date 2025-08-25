@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import TeacherProfile from '../components/teacherProfile/TeacherProfile.vue'
+import TeacherProfile from '../components/teacherProfile/teacherProfile.vue'
 </script>
 
 <template>

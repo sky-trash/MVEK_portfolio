@@ -19,7 +19,7 @@ const formData = ref({
   surname: '',
   lname: '',
   agreeTerms: false,
-  role: 'student' // Добавляем поле для выбора роли
+  role: 'student'
 });
 
 // Состояние загрузки и ошибок
@@ -94,7 +94,7 @@ const handleRegister = async () => {
       userId: userCredential.user.uid,
       login: formData.value.login,
       email: formData.value.email,
-      avatarUrl: '', // Пустая строка вместо аватара
+      avatarUrl: '',
       role: formData.value.role,
       name: formData.value.name,
       surname: formData.value.surname,
@@ -107,42 +107,19 @@ const handleRegister = async () => {
     if (formData.value.role === 'student') {
       userData.group = formData.value.group;
       userData.specialty = formData.value.specialty;
-      
-      // Сохранение данных студента
-      await addDoc(collection(db, 'users'), userData);
-      
-      // 5. Отправка подтверждения
-      await sendEmailVerification(userCredential.user);
+    }
 
-      // 6. Успешное завершение
+    // 4. Сохранение данных пользователя
+    await addDoc(collection(db, 'users'), userData);
+    
+    // 5. Отправка подтверждения
+    await sendEmailVerification(userCredential.user);
+
+    // 6. Перенаправление в зависимости от роли
+    if (formData.value.role === 'student') {
       router.push('/profile');
     } else {
-      // Для преподавателя создаем профиль в коллекции teachers
-      const teacherData = {
-        userId: userCredential.user.uid,
-        name: `${formData.value.surname} ${formData.value.name} ${formData.value.lname || ''}`.trim(),
-        position: 'Преподаватель',
-        isVerified: false,
-        rating: 0,
-        bio: '',
-        experience: 0,
-        specialization: '',
-        email: formData.value.email,
-        groups: [],
-        projects: []
-      };
-      
-      // Сохраняем пользователя в коллекции users
-      await addDoc(collection(db, 'users'), userData);
-      
-      // Сохраняем профиль преподавателя в коллекции teachers
-      const teacherDocRef = await addDoc(collection(db, 'teachers'), teacherData);
-      
-      // 5. Отправка подтверждения
-      await sendEmailVerification(userCredential.user);
-
-      // 6. Перенаправляем на страницу профиля преподавателя
-      router.push(`/teacherProfile/${teacherDocRef.id}`);
+      router.push('/teacherProfile');
     }
 
   } catch (error) {

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProjectCard from '@/components/projectCard/projectCard.vue'
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore'
-import { db } from '@/firebase'
+import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { db, auth } from '@/firebase'
 
 interface Group {
   id: string
@@ -37,44 +37,103 @@ interface Teacher {
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
 const teacher = ref<Teacher | null>(null)
 const loading = ref(true)
 const isOwnProfile = ref(false)
+const currentUserId = ref<string | null>(null)
+
+// Получаем ID текущего пользователя
+onMounted(() => {
+  const user = auth.currentUser
+  if (user) {
+    currentUserId.value = user.uid
+  }
+})
+
+// Функция для поиска преподавателя в коллекции users
+const findTeacherInUsers = async (teacherId: string) => {
+  try {
+    // Пытаемся найти преподавателя в коллекции users
+    const usersQuery = query(
+      collection(db, 'users'), 
+      where('role', '==', 'teacher'),
+      where('userId', '==', teacherId)
+    )
+    
+    const usersSnapshot = await getDocs(usersQuery)
+    
+    if (!usersSnapshot.empty) {
+      const userDoc = usersSnapshot.docs[0]
+      const userData = userDoc.data()
+      
+      // Создаем объект преподавателя из данных пользователя
+      return {
+        id: userDoc.id,
+        userId: userData.userId,
+        name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
+        position: 'Преподаватель',
+        avatar: userData.avatarUrl || '',
+        isVerified: false,
+        rating: 0,
+        bio: '',
+        experience: 0,
+        specialization: '',
+        email: userData.email,
+        groups: [],
+        projects: []
+      } as Teacher
+    }
+    
+    return null
+  } catch (error) {
+    console.error('Ошибка поиска преподавателя в users:', error)
+    return null
+  }
+}
 
 const fetchTeacherData = async (id: string) => {
   try {
-    // Получаем данные преподавателя из Firestore
+    // Сначала пытаемся найти в коллекции teachers
     const teacherDoc = await getDoc(doc(db, 'teachers', id))
     
-    if (!teacherDoc.exists()) {
-      throw new Error('Преподаватель не найден')
+    if (teacherDoc.exists()) {
+      const teacherData = teacherDoc.data()
+      
+      // Получаем группы преподавателя
+      const groupsQuery = query(collection(db, 'groups'), where('teacherId', '==', id))
+      const groupsSnapshot = await getDocs(groupsQuery)
+      const groups = groupsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Group[]
+
+      // Получаем проекты преподавателя
+      const projectsQuery = query(
+        collection(db, 'projects'), 
+        where('teacherId', '==', id),
+        orderBy('createdAt', 'desc')
+      )
+      const projectsSnapshot = await getDocs(projectsQuery)
+      const projects = projectsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Project[]
+
+      return {
+        id: teacherDoc.id,
+        ...teacherData,
+        groups,
+        projects
+      } as Teacher
     }
-
-    const teacherData = teacherDoc.data()
     
-    // Получаем группы преподавателя
-    const groupsQuery = query(collection(db, 'groups'), where('teacherId', '==', id))
-    const groupsSnapshot = await getDocs(groupsQuery)
-    const groups = groupsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Group[]
-
-    // Получаем проекты преподавателя
-    const projectsQuery = query(collection(db, 'projects'), where('teacherId', '==', id))
-    const projectsSnapshot = await getDocs(projectsQuery)
-    const projects = projectsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    })) as Project[]
-
-    return {
-      id: teacherDoc.id,
-      ...teacherData,
-      groups,
-      projects
-    } as Teacher
+    // Если не нашли в teachers, ищем в users
+    const teacherFromUsers = await findTeacherInUsers(id)
+    if (teacherFromUsers) {
+      return teacherFromUsers
+    }
+    
+    throw new Error('Преподаватель не найден')
   } catch (error) {
     console.error('Ошибка загрузки данных преподавателя:', error)
     throw error
@@ -84,10 +143,16 @@ const fetchTeacherData = async (id: string) => {
 onMounted(async () => {
   try {
     const teacherId = route.params.id as string
-    teacher.value = await fetchTeacherData(teacherId)
+    
+    // Если это личный профиль (/teacherProfile), используем ID текущего пользователя
+    const targetId = route.name === 'teacherProfile' && currentUserId.value 
+      ? currentUserId.value 
+      : teacherId
+    
+    teacher.value = await fetchTeacherData(targetId)
     
     // Проверяем, является ли это профиль текущего пользователя
-    if (userStore.user && userStore.user.userId === teacher.value.userId) {
+    if (currentUserId.value && teacher.value.userId === currentUserId.value) {
       isOwnProfile.value = true
     }
   } catch (error) {
@@ -98,11 +163,13 @@ onMounted(async () => {
 })
 
 const navigateToProject = (projectId: string) => {
-  router.push(`/projects/${projectId}`)
+  router.push(`/project/${projectId}`)
 }
 
 const editProfile = () => {
-  router.push(`/teacher/${route.params.id}/edit`)
+  if (teacher.value) {
+    router.push(`/teacher/${teacher.value.id}/edit`)
+  }
 }
 </script>
 

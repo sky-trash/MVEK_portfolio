@@ -55,6 +55,15 @@ const routes = [
     }
   },
   {
+    path: '/teacherProfile',
+    name: 'teacherProfile',
+    component: TeacherProfileView,
+    meta: {
+      title: 'Профиль преподавателя',
+      requiresAuth: true
+    }
+  },
+  {
     path: '/profile/:id',
     name: 'user-profile',
     component: ProfileView,
@@ -101,18 +110,8 @@ const routes = [
       requiresAuth: false
     }
   },
-    {
-    path: '/teachers/:id',
-    name: 'teachers-profile',
-    component: TeacherProfileView,
-    meta: {
-      title: 'Профиль преподователя',
-      requiresAuth: false
-    },
-    props: true
-  },
   {
-    path: '/teachers/:id',
+    path: '/teacherProfile/:id',
     name: 'teacher-profile',
     component: TeacherProfileView,
     meta: {
