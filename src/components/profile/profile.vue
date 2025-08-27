@@ -66,8 +66,8 @@ const isOwnProfile = computed(() => {
 // Проверка валидности формы
 const isFormValid = computed(() => {
   return newProject.value.title.trim() !== '' &&
-         newProject.value.type.trim() !== '' &&
-         newProject.value.description.trim() !== '';
+    newProject.value.type.trim() !== '' &&
+    newProject.value.description.trim() !== '';
 });
 
 // Загрузка специальностей из Firestore
@@ -268,7 +268,7 @@ const handleProjectFiles = (event: Event) => {
 
 const addProject = async () => {
   if (!isFormValid.value) return;
-  
+
   try {
     isSavingProject.value = true;
     errorMessage.value = '';
@@ -371,6 +371,9 @@ onMounted(() => {
     loadProfileData();
   });
 });
+const editProfile = () => {
+  router.push('/profile/edit');
+};
 </script>
 
 <template>
@@ -394,7 +397,12 @@ onMounted(() => {
           </div>
 
           <div class="profile-info">
-            <h1 class="profile-name">{{ profileData.fullName }}</h1>
+            <div class="name-and-actions">
+              <h1 class="profile-name">{{ profileData.fullName }}</h1>
+              <button v-if="isOwnProfile" @click="editProfile" class="edit-profile-button">
+                <i class="fas fa-edit"></i> Редактировать профиль
+              </button>
+            </div>
             <p class="profile-nickname">@{{ profileData.nickname }}</p>
 
             <div class="profile-meta">
@@ -535,18 +543,18 @@ onMounted(() => {
                   placeholder="Опишите ваш проект"></textarea>
                 <small v-if="!newProject.description.trim()" class="error-text">Это поле обязательно</small>
               </div>
-              
+
               <div class="form-group">
                 <label>Дата</label>
                 <input v-model="newProject.date" type="date" class="form-input">
               </div>
-              
+
               <div class="form-group">
                 <label>Изображения проекта (можно выбрать несколько)</label>
                 <input type="file" accept="image/*" multiple @change="handleProjectFiles" class="form-input">
                 <small>Максимум 10 изображений. Изображения будут храниться локально</small>
               </div>
-              
+
               <div v-if="newProject.images.length" class="image-previews">
                 <div v-for="(image, index) in newProject.images" :key="index" class="image-preview-item">
                   <img :src="image" alt="Превью" class="preview-image">
@@ -555,13 +563,13 @@ onMounted(() => {
                   </button>
                 </div>
               </div>
-              
+
               <div class="form-actions">
                 <button @click="addProject" class="save-button" :disabled="!isFormValid || isSavingProject" :style="{
                   backgroundColor: isFormValid ? '#3182ce' : '#a0aec0',
                   cursor: isFormValid && !isSavingProject ? 'pointer' : 'not-allowed'
                 }">
-                  <i class="fas fa-plus"></i> 
+                  <i class="fas fa-plus"></i>
                   {{ isSavingProject ? 'Добавление...' : 'Добавить проект' }}
                 </button>
                 <button @click="cancelAddProject" class="cancel-button">
@@ -571,7 +579,8 @@ onMounted(() => {
             </div>
 
             <div v-if="activeTab === 'projects'" class="projects-grid">
-              <div v-for="(project, index) in userProjects" :key="index" class="project-card" @click="goToProjectDetail(project.id)">
+              <div v-for="(project, index) in userProjects" :key="index" class="project-card"
+                @click="goToProjectDetail(project.id)">
                 <div class="project-image-container">
                   <img :src="project.images[0] || '/placeholder-project.png'" :alt="project.title"
                     class="project-image">
@@ -623,73 +632,58 @@ onMounted(() => {
   </main>
   <Footer />
 </template>
-
-<style scoped>
-/* Стили остаются такими же, но добавлю несколько улучшений */
-
-.project-card {
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.project-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.form-select {
-  width: 100%;
-  padding: 0.75rem;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
-  font-size: 1rem;
-  background-color: white;
-}
-
-.form-select:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.project-delete-button {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(255, 255, 255, 0.9);
-  border: none;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-.project-delete-button:hover {
-  background: rgba(255, 71, 87, 0.9);
-  color: white;
-}
-
-/* Остальные стили остаются без изменений */
-</style>
-<style scoped>
+<style scoped lang="scss">
 @import "./profile.scss";
 
-.required {
-  color: #e53e3e;
+.name-and-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
 }
 
-.error-text {
-  color: #e53e3e;
-  font-size: 12px;
-  margin-top: 5px;
-  display: block;
+.edit-profile-button {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 25px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  
+  &:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+  
+  i {
+    font-size: 0.9rem;
+  }
 }
 
-.save-button:disabled {
-  background-color: #a0aec0 !important;
-  cursor: not-allowed !important;
+@media (max-width: 768px) {
+  .name-and-actions {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .edit-profile-button {
+    order: 2;
+  }
+}
+
+@media (max-width: 480px) {
+  .edit-profile-button {
+    width: 100%;
+    justify-content: center;
+  }
 }
 </style>

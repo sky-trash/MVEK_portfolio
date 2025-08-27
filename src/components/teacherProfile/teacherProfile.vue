@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Header from '../layouts/header/header.vue'
+import Footer from '../layouts/footer/footer.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProjectCard from '@/components/projectCard/projectCard.vue'
@@ -9,6 +11,8 @@ interface Group {
   id: string
   name: string
   studentCount: number
+  teacherId?: string
+  teacherName?: string
 }
 
 interface Project {
@@ -17,6 +21,7 @@ interface Project {
   previewImage: string
   type: string
   rating: number
+  teacherId?: string
 }
 
 interface Teacher {
@@ -33,6 +38,11 @@ interface Teacher {
   email: string
   groups: Group[]
   projects: Project[]
+  socialLinks?: {
+    behance?: string
+    dribbble?: string
+    vk?: string
+  }
 }
 
 const route = useRoute()
@@ -50,37 +60,52 @@ onMounted(() => {
   }
 })
 
-// Функция для поиска преподавателя в коллекции users
-const findTeacherInUsers = async (teacherId: string) => {
+// Функция для получения данных преподавателя из коллекции users
+const fetchTeacherFromUsers = async (teacherId: string) => {
   try {
-    // Пытаемся найти преподавателя в коллекции users
-    const usersQuery = query(
-      collection(db, 'users'), 
-      where('role', '==', 'teacher'),
-      where('userId', '==', teacherId)
-    )
-    
+    // Упрощенный запрос - ищем только по userId
+    const usersQuery = query(collection(db, 'users'), where('userId', '==', teacherId))
     const usersSnapshot = await getDocs(usersQuery)
     
     if (!usersSnapshot.empty) {
       const userDoc = usersSnapshot.docs[0]
       const userData = userDoc.data()
       
-      // Создаем объект преподавателя из данных пользователя
+      // Получаем группы, которые курирует преподаватель (упрощенный запрос)
+      const groupsQuery = query(collection(db, 'groups'))
+      const groupsSnapshot = await getDocs(groupsQuery)
+      const groups = groupsSnapshot.docs
+        .filter(doc => doc.data().teacherId === teacherId)
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Group[]
+
+      // Получаем все проекты и фильтруем на клиенте
+      const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
+      const projectsSnapshot = await getDocs(projectsQuery)
+      const projects = projectsSnapshot.docs
+        .filter(doc => doc.data().teacherId === teacherId)
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Project[]
+
       return {
         id: userDoc.id,
         userId: userData.userId,
         name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
-        position: 'Преподаватель',
+        position: userData.position || 'Преподаватель',
         avatar: userData.avatarUrl || '',
-        isVerified: false,
-        rating: 0,
-        bio: '',
-        experience: 0,
-        specialization: '',
-        email: userData.email,
-        groups: [],
-        projects: []
+        isVerified: userData.isVerified || false,
+        rating: userData.rating || 0,
+        bio: userData.bio || '',
+        experience: userData.experience || 0,
+        specialization: userData.specialization || '',
+        email: userData.email || '',
+        groups: groups,
+        projects: projects,
+        socialLinks: userData.socialLinks || {}
       } as Teacher
     }
     
@@ -93,42 +118,8 @@ const findTeacherInUsers = async (teacherId: string) => {
 
 const fetchTeacherData = async (id: string) => {
   try {
-    // Сначала пытаемся найти в коллекции teachers
-    const teacherDoc = await getDoc(doc(db, 'teachers', id))
-    
-    if (teacherDoc.exists()) {
-      const teacherData = teacherDoc.data()
-      
-      // Получаем группы преподавателя
-      const groupsQuery = query(collection(db, 'groups'), where('teacherId', '==', id))
-      const groupsSnapshot = await getDocs(groupsQuery)
-      const groups = groupsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Group[]
-
-      // Получаем проекты преподавателя
-      const projectsQuery = query(
-        collection(db, 'projects'), 
-        where('teacherId', '==', id),
-        orderBy('createdAt', 'desc')
-      )
-      const projectsSnapshot = await getDocs(projectsQuery)
-      const projects = projectsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Project[]
-
-      return {
-        id: teacherDoc.id,
-        ...teacherData,
-        groups,
-        projects
-      } as Teacher
-    }
-    
-    // Если не нашли в teachers, ищем в users
-    const teacherFromUsers = await findTeacherInUsers(id)
+    // Ищем преподавателя в коллекции users
+    const teacherFromUsers = await fetchTeacherFromUsers(id)
     if (teacherFromUsers) {
       return teacherFromUsers
     }
@@ -167,13 +158,12 @@ const navigateToProject = (projectId: string) => {
 }
 
 const editProfile = () => {
-  if (teacher.value) {
-    router.push(`/teacher/${teacher.value.id}/edit`)
-  }
+  router.push('/teacherProfile/edit')
 }
 </script>
 
 <template>
+  <Header/>
   <div class="teacher-profile-container">
     <div v-if="loading" class="loading-spinner">
       <div class="spinner"></div>
@@ -184,8 +174,7 @@ const editProfile = () => {
       <div class="profile-header">
         <div class="avatar-container">
           <img 
-            :src="teacher.avatar || '/default-teacher-avatar.jpg'" 
-            :alt="teacher.name"
+            src="../../../public/logo.png"
             class="avatar"
           >
           <div class="verified-badge" v-if="teacher.isVerified">✓</div>
@@ -231,6 +220,22 @@ const editProfile = () => {
             <div class="detail-item">
               <span class="detail-label">Email:</span>
               <a :href="`mailto:${teacher.email}`" class="detail-value link">{{ teacher.email }}</a>
+            </div>
+          </div>
+
+          <!-- Социальные сети -->
+          <div v-if="teacher.socialLinks && (teacher.socialLinks.behance || teacher.socialLinks.dribbble || teacher.socialLinks.vk)" class="social-links">
+            <h3>Социальные сети</h3>
+            <div class="social-icons">
+              <a v-if="teacher.socialLinks.behance" :href="teacher.socialLinks.behance" target="_blank" class="social-link">
+                <i class="fab fa-behance"></i>
+              </a>
+              <a v-if="teacher.socialLinks.dribbble" :href="teacher.socialLinks.dribbble" target="_blank" class="social-link">
+                <i class="fab fa-dribbble"></i>
+              </a>
+              <a v-if="teacher.socialLinks.vk" :href="teacher.socialLinks.vk" target="_blank" class="social-link">
+                <i class="fab fa-vk"></i>
+              </a>
             </div>
           </div>
         </section>
@@ -280,8 +285,118 @@ const editProfile = () => {
       <router-link to="/teachers" class="back-link">← К списку преподавателей</router-link>
     </div>
   </div>
+  <Footer/>
 </template>
-
-<style scoped lang="scss">
+<style scoped>
 @import "./teacherProfile.scss";
+
+/* Стили для групп */
+.groups-section {
+  margin-bottom: 3rem;
+}
+
+.groups-section h2 {
+  color: #2d3748;
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 3px solid #e2e8f0;
+  position: relative;
+}
+
+.groups-section h2::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
+  border-radius: 3px;
+}
+
+.groups-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.group-card {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 1.5rem;
+  text-decoration: none;
+  color: #2d3748;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.group-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
+  border-radius: 4px 4px 0 0;
+}
+
+.group-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.group-card:hover .group-name {
+  color: #4a6cf7;
+}
+
+.group-name {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  transition: color 0.3s ease;
+  display: block;
+}
+
+.student-count {
+  font-size: 0.9rem;
+  color: #718096;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.student-count::before {
+  content: '👥';
+  font-size: 1rem;
+}
+
+/* Адаптивность для групп */
+@media (max-width: 768px) {
+  .groups-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .group-card {
+    padding: 1.25rem;
+  }
+  
+  .group-name {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .groups-section h2 {
+    font-size: 1.5rem;
+  }
+  
+  .group-card {
+    padding: 1rem;
+  }
+}
 </style>

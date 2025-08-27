@@ -2,51 +2,85 @@
 import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
 import { ref, computed, onMounted } from 'vue';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { db } from '@/firebase';
 
-// Моковые данные преподавателей
-const teachers = ref([
-  {
-    id: 1,
-    name: 'Смирнова Ольга Васильевна',
-    position: 'Преподаватель графического дизайна',
-    department: 'Кафедра графического дизайна',
-    experience: '15 лет',
-    groups: ['ДИ-21', 'ДИ-22', 'ДИ-31'],
-    subjects: ['Типографика', 'Бренд-дизайн', 'Композиция'],
-    avatar: 'https://via.placeholder.com/300x300?text=Teacher+1',
-    bio: 'Специалист в области графического дизайна с большим опытом работы в ведущих дизайн-студиях. Автор методических пособий по типографике.',
-    email: 'o.smirnova@mvek.edu',
-    phone: '+7 (495) 111-22-33',
-    social: {
-      vk: 'https://vk.com/teacher1',
-      telegram: 'https://t.me/teacher1'
-    }
-  },
-  {
-    id: 2,
-    name: 'Иванов Алексей Петрович',
-    position: 'Преподаватель веб-дизайна',
-    department: 'Кафедра цифрового дизайна',
-    experience: '10 лет',
-    groups: ['ДИ-22', 'ДИ-23', 'ДИ-32'],
-    subjects: ['UI/UX дизайн', 'Прототипирование', 'Figma'],
-    avatar: 'https://via.placeholder.com/300x300?text=Teacher+2',
-    bio: 'Практикующий веб-дизайнер, участник международных конференций. Специализируется на создании пользовательских интерфейсов.',
-    email: 'a.ivanov@mvek.edu',
-    phone: '+7 (495) 222-33-44',
-    social: {
-      behance: 'https://behance.net/teacher2',
-      dribbble: 'https://dribbble.com/teacher2'
-    }
-  },
-  // ... другие преподаватели
-]);
+interface Teacher {
+  id: string;
+  name: string;
+  position: string;
+  department: string;
+  experience: string;
+  groups: string[];
+  subjects: string[];
+  avatar: string;
+  bio: string;
+  email: string;
+  phone: string;
+  social: {
+    vk?: string;
+    telegram?: string;
+    behance?: string;
+    dribbble?: string;
+  };
+}
+
+const teachers = ref<Teacher[]>([]);
 
 // Фильтры
 const searchQuery = ref('');
 const selectedDepartment = ref('all');
 const selectedSubject = ref('all');
 const sortBy = ref('name');
+
+// Получение преподавателей из базы данных
+const fetchTeachers = async () => {
+  try {
+    isLoading.value = true;
+    
+    // Запрос к коллекции users с фильтрацией по роли teacher
+    const usersQuery = query(
+      collection(db, 'users'),
+      where('role', '==', 'teacher')
+    );
+    
+    const querySnapshot = await getDocs(usersQuery);
+    const teachersData: Teacher[] = [];
+    
+    querySnapshot.forEach((doc) => {
+      const userData = doc.data();
+      
+      // Преобразование данных из Firestore в формат Teacher
+      const teacher: Teacher = {
+        id: doc.id,
+        name: userData.name || userData.login || 'Не указано',
+        position: userData.position || 'Преподаватель',
+        department: userData.department || 'Кафедра не указана',
+        experience: userData.experience || 'Не указан',
+        groups: userData.groups || [],
+        subjects: userData.subjects || [],
+        avatar: userData.avatarUrl || `https://via.placeholder.com/300x300?text=Teacher`,
+        bio: userData.bio || 'Информация о преподавателе',
+        email: userData.email || '',
+        phone: userData.phone || '+7 (XXX) XXX-XX-XX',
+        social: {
+          vk: userData.socialLinks?.vk || '',
+          telegram: userData.socialLinks?.telegram || '',
+          behance: userData.socialLinks?.behance || '',
+          dribbble: userData.socialLinks?.dribbble || ''
+        }
+      };
+      
+      teachersData.push(teacher);
+    });
+    
+    teachers.value = teachersData;
+  } catch (error) {
+    console.error('Ошибка при загрузке преподавателей:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
 
 // Получение уникальных значений для фильтров
 const departments = computed(() => {
@@ -93,12 +127,10 @@ const filteredTeachers = computed(() => {
   return result;
 });
 
-// Загрузка данных (имитация API)
+// Загрузка данных
 const isLoading = ref(true);
 onMounted(() => {
-  setTimeout(() => {
-    isLoading.value = false;
-  }, 800);
+  fetchTeachers();
 });
 </script>
 
@@ -176,9 +208,9 @@ onMounted(() => {
           :key="teacher.id" 
           class="teacher-card"
         >
-          <router-link :to="`/teacher/${teacher.id}`" class="teacher-link">
+          <router-link :to="`/teacherProfile/${teacher.id}`" class="teacher-link">
             <div class="teacher-avatar">
-              <img :src="teacher.avatar" :alt="teacher.name" class="avatar-image">
+              <img src="../../../public/logo.png" class="avatar-image">
             </div>
             <div class="teacher-info">
               <h3 class="teacher-name">{{ teacher.name }}</h3>
@@ -205,10 +237,6 @@ onMounted(() => {
             <a :href="`mailto:${teacher.email}`" class="contact-link">
               <i class="fas fa-envelope"></i>
               {{ teacher.email }}
-            </a>
-            <a :href="`tel:${teacher.phone}`" class="contact-link">
-              <i class="fas fa-phone-alt"></i>
-              {{ teacher.phone }}
             </a>
             <div class="social-links">
               <a 

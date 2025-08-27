@@ -2,7 +2,8 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/firebase'; // Импортируем auth из вашего файла
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { auth, db } from '@/firebase'; // Добавляем импорт db
 
 const router = useRouter();
 
@@ -16,6 +17,24 @@ const formData = ref({
 // Состояние загрузки
 const isLoading = ref(false);
 const errorMessage = ref('');
+
+// Функция для получения роли пользователя из Firestore
+const getUserRole = async (userId: string) => {
+  try {
+    const q = query(collection(db, 'users'), where('userId', '==', userId));
+    const querySnapshot = await getDocs(q);
+    
+    if (!querySnapshot.empty) {
+      const userData = querySnapshot.docs[0].data();
+      return userData.role || 'student'; // По умолчанию student
+    }
+    
+    return 'student'; // Роль по умолчанию, если не найдена
+  } catch (error) {
+    console.error('Error getting user role:', error);
+    return 'student';
+  }
+};
 
 // Функция авторизации
 const handleLogin = async () => {
@@ -40,9 +59,20 @@ const handleLogin = async () => {
     const storage = formData.value.remember ? localStorage : sessionStorage;
     storage.setItem('authToken', token);
     storage.setItem('userEmail', formData.value.email);
+    storage.setItem('userId', userCredential.user.uid);
     
-    // Перенаправление после успешной авторизации
-    router.push('/profile');
+    // Получаем роль пользователя
+    const userRole = await getUserRole(userCredential.user.uid);
+    storage.setItem('userRole', userRole);
+    
+    // Перенаправление в зависимости от роли
+    if (userRole === 'student') {
+      router.push('/profile');
+    } else if (userRole === 'teacher') {
+      router.push('/teacherProfile');
+    } else {
+      router.push('/profile'); // По умолчанию для студента
+    }
     
   } catch (error: any) {
     console.error('Auth error:', error);
@@ -71,6 +101,9 @@ const handleAuthError = (error: any) => {
     case 'auth/network-request-failed':
       errorMessage.value = 'Ошибка сети. Проверьте подключение.';
       break;
+    case 'auth/configuration-not-found':
+      errorMessage.value = 'Ошибка конфигурации. Свяжитесь с администратором.';
+      break;
     default:
       errorMessage.value = 'Ошибка авторизации. Попробуйте снова.';
       console.error('Unknown auth error:', error);
@@ -79,9 +112,27 @@ const handleAuthError = (error: any) => {
 
 // Проверка авторизации при загрузке страницы
 onMounted(() => {
-  const unsubscribe = onAuthStateChanged(auth, (user) => {
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
     if (user) {
-      router.push('/profile');
+      // Проверяем email verification
+      if (!user.emailVerified) {
+        await auth.signOut();
+        errorMessage.value = 'Пожалуйста, подтвердите вашу электронную почту';
+        return;
+      }
+      
+      // Получаем роль и перенаправляем
+      const userRole = await getUserRole(user.uid);
+      const storage = localStorage.getItem('authToken') ? localStorage : sessionStorage;
+      storage.setItem('userRole', userRole);
+      
+      if (userRole === 'student') {
+        router.push('/profile');
+      } else if (userRole === 'teacher') {
+        router.push('/teacherProfile');
+      } else {
+        router.push('/profile');
+      }
     }
     unsubscribe();
   });

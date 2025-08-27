@@ -14,6 +14,8 @@ import StudentProfileView from '@/pages/StudentProfileView.vue'
 import TeacherProfileView from '@/pages/TeacherProfileView.vue'
 import ProjectDetailsView from '@/pages/ProjectDetailsView.vue'
 import NotFoundView from '@/pages/NotFoundView.vue'
+import EditProfileView from '@/pages/EditProfileView.vue'
+import EditTeacherProfileView from '@/pages/EditTeacherProfileView.vue' 
 
 const routes = [
   {
@@ -72,6 +74,24 @@ const routes = [
       requiresAuth: false
     },
     props: true
+  },
+  {
+    path: '/profile/edit',
+    name: 'edit-profile',
+    component: EditProfileView,
+    meta: {
+      title: 'Редактирование профиля',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/teacherProfile/edit',
+    name: 'edit-teacher-profile',
+    component: EditTeacherProfileView,
+    meta: {
+      title: 'Редактирование профиля преподавателя',
+      requiresAuth: true
+    }
   },
   {
     path: '/about',

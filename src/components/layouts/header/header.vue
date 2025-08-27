@@ -2,18 +2,39 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from '@/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { auth, db } from '@/firebase';
 
 const router = useRouter();
 const isMobileMenuOpen = ref(false);
 const isAuthenticated = ref(false);
 const userEmail = ref('');
+const userRole = ref('');
 
-// Проверка состояния авторизации
+// Проверка состояния авторизации и получение роли пользователя
 onMounted(() => {
-  const unsubscribe = onAuthStateChanged(auth, (user) => {
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
     isAuthenticated.value = !!user;
     userEmail.value = user?.email || '';
+    
+    if (user) {
+      // Получаем роль пользователя из Firestore
+      try {
+        const usersQuery = query(
+          collection(db, 'users'), 
+          where('userId', '==', user.uid)
+        );
+        const querySnapshot = await getDocs(usersQuery);
+        
+        if (!querySnapshot.empty) {
+          const userData = querySnapshot.docs[0].data();
+          userRole.value = userData.role || 'student';
+        }
+      } catch (error) {
+        console.error('Error fetching user role:', error);
+        userRole.value = 'student';
+      }
+    }
   });
   return () => unsubscribe();
 });
@@ -27,6 +48,15 @@ const handleLogout = async () => {
     router.push('/');
   } catch (error) {
     console.error('Logout error:', error);
+  }
+};
+
+// Переход в профиль с проверкой роли
+const goToProfile = () => {
+  if (userRole.value === 'teacher') {
+    router.push('/teacherProfile');
+  } else {
+    router.push('/profile');
   }
 };
 </script>
@@ -66,7 +96,7 @@ const handleLogout = async () => {
       </div>
 
       <div class="auth-buttons" v-else>
-        <router-link to="/profile" class="auth-button login-button">
+        <router-link :to="userRole === 'teacher' ? '/teacherProfile' : '/profile'" class="auth-button login-button">
           Профиль {{ userEmail }}
         </router-link>
         <router-link to="" @click="handleLogout" class="auth-button register-button">Выйти</router-link>
@@ -107,7 +137,7 @@ const handleLogout = async () => {
           </template>
           <template v-else>
             <li class="mobile-nav-item">
-              <router-link to="/profile" class="mobile-nav-link">Профиль</router-link>
+              <router-link :to="userRole === 'teacher' ? '/teacherProfile' : '/profile'" class="mobile-nav-link">Профиль</router-link>
             </li>
             <li class="mobile-nav-item">
               <router-link to="" @click="handleLogout" class="mobile-nav-link">Выйти</router-link>
