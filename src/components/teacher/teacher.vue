@@ -33,6 +33,19 @@ const selectedDepartment = ref('all');
 const selectedSubject = ref('all');
 const sortBy = ref('name');
 
+// Функция для правильного склонения слова "год"
+const getExperienceText = (experience: string | number): string => {
+  const exp = typeof experience === 'string' ? parseInt(experience) || 0 : experience;
+  
+  if (exp === 1) {
+    return 'год';
+  } else if (exp >= 2 && exp <= 4) {
+    return 'года';
+  } else {
+    return 'лет';
+  }
+};
+
 // Получение преподавателей из базы данных
 const fetchTeachers = async () => {
   try {
@@ -50,15 +63,30 @@ const fetchTeachers = async () => {
     querySnapshot.forEach((doc) => {
       const userData = doc.data();
       
+      // Преобразуем subjects в массив, если это строка
+      let subjectsArray: string[] = [];
+      if (Array.isArray(userData.subjects)) {
+        subjectsArray = userData.subjects;
+      } else if (typeof userData.subjects === 'string') {
+        subjectsArray = [userData.subjects];
+      } else if (userData.specialization) {
+        // Если есть specialization, используем его
+        if (Array.isArray(userData.specialization)) {
+          subjectsArray = userData.specialization;
+        } else if (typeof userData.specialization === 'string') {
+          subjectsArray = [userData.specialization];
+        }
+      }
+      
       // Преобразование данных из Firestore в формат Teacher
       const teacher: Teacher = {
         id: doc.id,
         name: userData.name || userData.login || 'Не указано',
         position: userData.position || 'Преподаватель',
         department: userData.department || 'Кафедра не указана',
-        experience: userData.experience || 'Не указан',
+        experience: userData.experience || '0',
         groups: userData.groups || [],
-        subjects: userData.subjects || [],
+        subjects: subjectsArray,
         avatar: userData.avatarUrl || `https://via.placeholder.com/300x300?text=Teacher`,
         bio: userData.bio || 'Информация о преподавателе',
         email: userData.email || '',
@@ -85,12 +113,19 @@ const fetchTeachers = async () => {
 // Получение уникальных значений для фильтров
 const departments = computed(() => {
   const deps = new Set(teachers.value.map(t => t.department));
-  return ['all', ...deps];
+  return [...deps].filter(dep => dep && dep !== 'all' && dep !== 'Кафедра не указана');
 });
 
 const subjects = computed(() => {
-  const subjs = new Set(teachers.value.flatMap(t => t.subjects));
-  return ['all', ...subjs];
+  // Получаем все предметы/специализации из профилей преподавателей
+  const allSubjects = teachers.value.flatMap(t => t.subjects);
+  
+  // Фильтруем пустые значения, дубликаты и сортируем по алфавиту
+  const uniqueSubjects = [...new Set(allSubjects)]
+    .filter(subj => subj && subj.trim() !== '')
+    .sort((a, b) => a.localeCompare(b));
+  
+  return uniqueSubjects;
 });
 
 // Фильтрация и сортировка преподавателей
@@ -103,7 +138,7 @@ const filteredTeachers = computed(() => {
     result = result.filter(t => 
       t.name.toLowerCase().includes(query) || 
       t.position.toLowerCase().includes(query) ||
-      t.subjects.some(s => s.toLowerCase().includes(query))
+      (t.subjects && t.subjects.some(s => s.toLowerCase().includes(query)))
     );
   }
   
@@ -112,16 +147,24 @@ const filteredTeachers = computed(() => {
     result = result.filter(t => t.department === selectedDepartment.value);
   }
   
-  // Фильтрация по предмету
+  // Фильтрация по предмету/специализации
   if (selectedSubject.value !== 'all') {
-    result = result.filter(t => t.subjects.includes(selectedSubject.value));
+    result = result.filter(t => 
+      t.subjects && t.subjects.some(subject => 
+        subject.toLowerCase().includes(selectedSubject.value.toLowerCase())
+      )
+    );
   }
   
   // Сортировка
   if (sortBy.value === 'name') {
     result.sort((a, b) => a.name.localeCompare(b.name));
   } else if (sortBy.value === 'experience') {
-    result.sort((a, b) => parseInt(b.experience) - parseInt(a.experience));
+    result.sort((a, b) => {
+      const expA = parseInt(a.experience) || 0;
+      const expB = parseInt(b.experience) || 0;
+      return expB - expA;
+    });
   }
   
   return result;
@@ -165,7 +208,6 @@ onMounted(() => {
                 v-for="department in departments" 
                 :key="department" 
                 :value="department"
-                v-if="department !== 'all'"
               >
                 {{ department }}
               </option>
@@ -173,14 +215,13 @@ onMounted(() => {
           </div>
 
           <div class="filter-group">
-            <label>Предмет:</label>
+            <label>Специализация:</label>
             <select v-model="selectedSubject" class="filter-select">
-              <option value="all">Все предметы</option>
+              <option value="all">Все специализации</option>
               <option 
                 v-for="subject in subjects" 
                 :key="subject" 
                 :value="subject"
-                v-if="subject !== 'all'"
               >
                 {{ subject }}
               </option>
@@ -221,20 +262,18 @@ onMounted(() => {
               </div>
               <div class="teacher-experience">
                 <i class="fas fa-briefcase"></i>
-                Стаж: {{ teacher.experience }}
+                Стаж: {{ teacher.experience }} {{ getExperienceText(teacher.experience) }}
               </div>
-              <div class="teacher-subjects">
+              <div class="teacher-subjects" v-if="teacher.subjects && teacher.subjects.length > 0">
                 <i class="fas fa-book"></i>
-                <div class="subjects-list">
-                  <span v-for="subject in teacher.subjects" :key="subject" class="subject-tag">
-                    {{ subject }}
-                  </span>
+                <div class="subjects-text">
+                  {{ teacher.subjects.join(', ') }}
                 </div>
               </div>
             </div>
           </router-link>
           <div class="teacher-contacts">
-            <a :href="`mailto:${teacher.email}`" class="contact-link">
+            <a v-if="teacher.email" :href="`mailto:${teacher.email}`" class="contact-link">
               <i class="fas fa-envelope"></i>
               {{ teacher.email }}
             </a>

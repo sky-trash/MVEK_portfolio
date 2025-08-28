@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
   doc, 
@@ -9,7 +9,8 @@ import {
   collection, 
   query, 
   where, 
-  getDocs
+  getDocs,
+  addDoc
 } from 'firebase/firestore'
 import { db, auth } from '@/firebase'
 
@@ -21,7 +22,8 @@ const saveErrorMessage = ref('')
 const saveSuccessMessage = ref('')
 
 // Данные из Firestore
-const specialties = ref<string[]>([])
+const specialties = ref<string[]>([]) // Специализации из коллекции specialties
+const departments = ref<string[]>([]) // Кафедры (будут создаваться на основе специализаций)
 const allGroups = ref<any[]>([])
 const isDataLoading = ref(true)
 
@@ -32,8 +34,9 @@ const formData = ref({
   login: '',
   email: '',
   position: '',
+  department: '', // Кафедра (сохраняется в users)
+  specialization: '', // Специализация (из коллекции specialties)
   experience: 0,
-  specialization: '',
   bio: '',
   socialLinks: {
     behance: '',
@@ -46,10 +49,21 @@ const formData = ref({
 // Загрузка данных из Firestore
 const loadFirestoreData = async () => {
   try {
-    // Загрузка специализаций
+    // Загрузка специализаций из коллекции specialties
     const specialtiesQuery = query(collection(db, 'specialties'))
     const specialtiesSnapshot = await getDocs(specialtiesQuery)
-    specialties.value = specialtiesSnapshot.docs.map(doc => doc.data().name)
+    if (!specialtiesSnapshot.empty) {
+      specialties.value = specialtiesSnapshot.docs
+        .map(doc => doc.data().name)
+        .filter(name => name && name.trim() !== '')
+        .sort((a, b) => a.localeCompare(b))
+    } else {
+      console.log('Коллекция specialties пуста или не существует')
+      specialties.value = []
+    }
+
+    // Создаем кафедры на основе специализаций
+    departments.value = createDepartmentsFromSpecialties(specialties.value)
 
     // Загрузка всех групп
     const groupsQuery = query(collection(db, 'groups'))
@@ -65,6 +79,31 @@ const loadFirestoreData = async () => {
   } finally {
     isDataLoading.value = false
   }
+}
+
+// Создание кафедр на основе специализаций
+const createDepartmentsFromSpecialties = (specialtiesList: string[]): string[] => {
+  const departmentMap: Record<string, boolean> = {}
+  
+  // Базовые кафедры для дизайнерских специальностей
+  const baseDepartments = [
+    'Кафедра графического дизайна',
+    'Кафедра веб-дизайна',
+    'Кафедра промышленного дизайна',
+    'Кафедра дизайна интерьера',
+    'Кафедра дизайна',
+    'Кафедра IT-разработки',
+    'Кафедра дизайна по отраслям',
+    'Кафедра дизайна пользовательского интерфейса'
+  ]
+
+  // Добавляем базовые кафедры
+  baseDepartments.forEach(dept => {
+    departmentMap[dept] = true
+  })
+
+
+  return Object.keys(departmentMap).sort((a, b) => a.localeCompare(b))
 }
 
 // Загрузка данных профиля преподавателя
@@ -97,8 +136,9 @@ const loadProfileData = async () => {
       login: userData.login || '',
       email: userData.email || '',
       position: userData.position || 'Преподаватель',
-      experience: userData.experience || 0,
+      department: userData.department || '',
       specialization: userData.specialization || '',
+      experience: userData.experience || 0,
       bio: userData.bio || '',
       socialLinks: {
         behance: userData.socialLinks?.behance || '',
@@ -131,8 +171,14 @@ const saveProfile = async () => {
 
     // Валидация
     if (!formData.value.name || !formData.value.surname || !formData.value.login || 
-        !formData.value.position || !formData.value.specialization || !formData.value.bio) {
+        !formData.value.position || !formData.value.department || !formData.value.specialization || !formData.value.bio) {
       saveErrorMessage.value = 'Заполните все обязательные поля'
+      return
+    }
+
+    // Проверяем, что выбранная специализация существует в базе
+    if (!specialties.value.includes(formData.value.specialization)) {
+      saveErrorMessage.value = 'Выбранная специализация не найдена в системе'
       return
     }
 
@@ -155,8 +201,9 @@ const saveProfile = async () => {
       lname: formData.value.lname,
       login: formData.value.login,
       position: formData.value.position,
+      department: formData.value.department, // Сохраняем кафедру
+      specialization: formData.value.specialization, // Сохраняем специализацию
       experience: Number(formData.value.experience),
-      specialization: formData.value.specialization,
       bio: formData.value.bio,
       socialLinks: formData.value.socialLinks,
       curatedGroups: formData.value.curatedGroups,
@@ -170,12 +217,14 @@ const saveProfile = async () => {
         await updateDoc(groupRef, {
           teacherId: user.uid,
           teacherName: `${formData.value.surname} ${formData.value.name} ${formData.value.lname || ''}`.trim(),
+          teacherDepartment: formData.value.department,
           updatedAt: new Date()
         })
       } else if (group.teacherId === user.uid) {
         await updateDoc(groupRef, {
           teacherId: null,
           teacherName: null,
+          teacherDepartment: null,
           updatedAt: new Date()
         })
       }
@@ -265,13 +314,18 @@ onMounted(() => {
             
             <div class="form-row">
               <div class="form-group">
-                <label>Стаж работы (лет) *</label>
-                <input v-model="formData.experience" type="number" min="0" required>
+                <label>Кафедра *</label>
+                <select v-model="formData.department" required>
+                  <option value="">Выберите кафедру</option>
+                  <option v-for="department in departments" :key="department" :value="department">
+                    {{ department }}
+                  </option>
+                </select>
               </div>
               
               <div class="form-group">
                 <label>Специализация *</label>
-                <select v-model="formData.specialization" required :disabled="isDataLoading">
+                <select v-model="formData.specialization" required>
                   <option value="">Выберите специализацию</option>
                   <option v-for="specialty in specialties" :key="specialty" :value="specialty">
                     {{ specialty }}
@@ -279,6 +333,11 @@ onMounted(() => {
                 </select>
                 <div v-if="isDataLoading" class="loading-text">Загрузка специализаций...</div>
               </div>
+            </div>
+
+            <div class="form-group">
+              <label>Стаж работы (лет) *</label>
+              <input v-model="formData.experience" type="number" min="0" required>
             </div>
           </div>
 
@@ -381,352 +440,6 @@ onMounted(() => {
     <Footer />
   </div>
 </template>
-
-<style scoped>
-/* Стили для выпадающего списка групп */
-.groups-select {
-  width: 100%;
-  padding: 1rem;
-  border: 2px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 1rem;
-  background: white;
-  min-height: 150px;
-  transition: border-color 0.3s ease;
-}
-
-.groups-select:focus {
-  outline: none;
-  border-color: #4a6cf7;
-  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
-}
-
-.groups-select:disabled {
-  background-color: #f7fafc;
-  cursor: not-allowed;
-}
-
-.select-note {
-  display: block;
-  margin-top: 0.5rem;
-  color: #718096;
-  font-size: 0.9rem;
-  font-style: italic;
-}
-
-.selected-groups {
-  margin-top: 1.5rem;
-  padding: 1rem;
-  background: #f8fafc;
-  border-radius: 12px;
-  border: 2px solid #e2e8f0;
-}
-
-.selected-groups h3 {
-  margin: 0 0 1rem 0;
-  font-size: 1.1rem;
-  color: #2d3748;
-  font-weight: 600;
-}
-
-.selected-groups-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.selected-group-tag {
-  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  box-shadow: 0 2px 8px rgba(74, 108, 247, 0.3);
-}
-
-.remove-group-btn {
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  color: white;
-  cursor: pointer;
-  font-size: 1.1rem;
-  font-weight: bold;
-  padding: 0.1rem 0.4rem;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.3s ease;
-  line-height: 1;
-}
-
-.remove-group-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-/* Остальные стили остаются без изменений */
-.edit-profile-page {
-  min-height: 100vh;
-  padding: 2rem 0;
-  background: #f7fafc;
-}
-
-.edit-profile-container {
-  max-width: 900px;
-  margin: 0 auto;
-  background: white;
-  border-radius: 20px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
-}
-
-.edit-profile-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 2rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.edit-profile-header h1 {
-  margin: 0;
-  font-size: 2rem;
-}
-
-.back-button {
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  padding: 0.75rem 1.5rem;
-  border-radius: 25px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.back-button:hover {
-  background: rgba(255, 255, 255, 0.3);
-  transform: translateY(-2px);
-}
-
-.edit-profile-form {
-  padding: 2rem;
-}
-
-.form-section {
-  margin-bottom: 2.5rem;
-  padding-bottom: 2rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-
-.form-section:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-}
-
-.form-section h2 {
-  color: #2d3748;
-  font-size: 1.5rem;
-  font-weight: 600;
-  margin-bottom: 1.5rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #4a6cf7;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
-}
-
-.form-group {
-  margin-bottom: 1.5rem;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-  color: #2d3748;
-}
-
-.form-group input,
-.form-group select,
-.form-group textarea {
-  width: 100%;
-  padding: 1rem;
-  border: 2px solid #e2e8f0;
-  border-radius: 12px;
-  font-size: 1rem;
-  transition: border-color 0.3s ease;
-}
-
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: #4a6cf7;
-  box-shadow: 0 0 0 3px rgba(74, 108, 247, 0.1);
-}
-
-.form-group input:disabled {
-  background-color: #f7fafc;
-  color: #718096;
-  cursor: not-allowed;
-}
-
-.disabled-note {
-  display: block;
-  margin-top: 0.5rem;
-  color: #718096;
-  font-size: 0.9rem;
-}
-
-.loading-text {
-  color: #718096;
-  font-style: italic;
-  margin-top: 0.5rem;
-}
-
-.form-actions {
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-  margin-top: 2rem;
-  padding-top: 2rem;
-  border-top: 2px solid #e2e8f0;
-}
-
-.cancel-button {
-  background: transparent;
-  border: 2px solid #e2e8f0;
-  color: #718096;
-  padding: 1rem 2rem;
-  border-radius: 25px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.cancel-button:hover {
-  background: #f7fafc;
-  transform: translateY(-2px);
-}
-
-.save-button {
-  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
-  color: white;
-  border: none;
-  border-radius: 25px;
-  padding: 1rem 2rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.save-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(74, 108, 247, 0.4);
-}
-
-.save-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.error-message {
-  background: #fed7d7;
-  color: #c53030;
-  padding: 1rem;
-  border-radius: 12px;
-  margin-top: 1rem;
-  border-left: 4px solid #f56565;
-}
-
-.success-message {
-  background: #c6f6d5;
-  color: #2f855a;
-  padding: 1rem;
-  border-radius: 12px;
-  margin-top: 1rem;
-  border-left: 4px solid #48bb78;
-}
-
-.loading-spinner {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 3rem;
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid rgba(74, 108, 247, 0.1);
-  border-top: 4px solid #4a6cf7;
-  border-radius: 50%;
-  animation: spin 1s ease-in-out infinite;
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-@media (max-width: 768px) {
-  .edit-profile-header {
-    flex-direction: column;
-    gap: 1rem;
-    text-align: center;
-  }
-
-  .form-row {
-    grid-template-columns: 1fr;
-    gap: 1rem;
-  }
-
-  .form-actions {
-    flex-direction: column;
-  }
-}
-
-@media (max-width: 480px) {
-  .edit-profile-container {
-    margin: 1rem;
-    border-radius: 16px;
-  }
-
-  .edit-profile-form {
-    padding: 1.5rem;
-  }
-
-  .form-section {
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
-  }
-
-  .selected-groups-list {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-</style>
 <style scoped>
 @import "./EditTeacherProfile.scss";
 </style>

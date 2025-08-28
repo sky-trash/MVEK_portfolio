@@ -25,24 +25,27 @@ interface Project {
 }
 
 interface Teacher {
-  id: string
-  userId: string
-  name: string
-  position: string
-  avatar?: string
-  isVerified: boolean
-  rating: number
-  bio: string
-  experience: number
-  specialization: string
-  email: string
-  groups: Group[]
-  projects: Project[]
+  id: string;
+  userId?: string;
+  name: string;
+  position: string;
+  avatar?: string;
+  isVerified?: boolean;
+  rating?: number;
+  bio?: string;
+  experience?: number | string;
+  specialization?: string;
+  email?: string;
+  groups?: Group[];
+  projects?: Project[];
   socialLinks?: {
-    behance?: string
-    dribbble?: string
-    vk?: string
-  }
+    behance?: string;
+    dribbble?: string;
+    vk?: string;
+    telegram?: string;
+  };
+  department?: string;
+  subjects?: string[];
 }
 
 const route = useRoute()
@@ -51,6 +54,16 @@ const teacher = ref<Teacher | null>(null)
 const loading = ref(true)
 const isOwnProfile = ref(false)
 const currentUserId = ref<string | null>(null)
+
+const formattedRating = computed(() => {
+  const rating = teacher.value?.rating || 0;
+  return rating.toFixed(1);
+});
+
+const starRating = computed(() => {
+  const rating = teacher.value?.rating || 0;
+  return Math.round(rating);
+});
 
 // Получаем ID текущего пользователя
 onMounted(() => {
@@ -66,11 +79,11 @@ const fetchTeacherFromUsers = async (teacherId: string) => {
     // Упрощенный запрос - ищем только по userId
     const usersQuery = query(collection(db, 'users'), where('userId', '==', teacherId))
     const usersSnapshot = await getDocs(usersQuery)
-    
+
     if (!usersSnapshot.empty) {
       const userDoc = usersSnapshot.docs[0]
       const userData = userDoc.data()
-      
+
       // Получаем группы, которые курирует преподаватель (упрощенный запрос)
       const groupsQuery = query(collection(db, 'groups'))
       const groupsSnapshot = await getDocs(groupsQuery)
@@ -108,7 +121,7 @@ const fetchTeacherFromUsers = async (teacherId: string) => {
         socialLinks: userData.socialLinks || {}
       } as Teacher
     }
-    
+
     return null
   } catch (error) {
     console.error('Ошибка поиска преподавателя в users:', error)
@@ -118,40 +131,48 @@ const fetchTeacherFromUsers = async (teacherId: string) => {
 
 const fetchTeacherData = async (id: string) => {
   try {
-    // Ищем преподавателя в коллекции users
-    const teacherFromUsers = await fetchTeacherFromUsers(id)
-    if (teacherFromUsers) {
-      return teacherFromUsers
+    // Сначала ищем в коллекции teachers
+    const teacherDoc = await getDoc(doc(db, 'teachers', id));
+    if (teacherDoc.exists()) {
+      return { id: teacherDoc.id, ...teacherDoc.data() } as Teacher;
     }
-    
-    throw new Error('Преподаватель не найден')
+
+    // Если не найден в teachers, ищем в users
+    const userDoc = await getDoc(doc(db, 'users', id));
+    if (userDoc.exists() && userDoc.data().role === 'teacher') {
+      return { id: userDoc.id, ...userDoc.data() } as Teacher;
+    }
+
+    throw new Error('Преподаватель не найден');
   } catch (error) {
-    console.error('Ошибка загрузки данных преподавателя:', error)
-    throw error
+    console.error('Ошибка загрузки данных преподавателя:', error);
+    throw error;
   }
-}
+};
 
 onMounted(async () => {
   try {
-    const teacherId = route.params.id as string
-    
-    // Если это личный профиль (/teacherProfile), используем ID текущего пользователя
-    const targetId = route.name === 'teacherProfile' && currentUserId.value 
-      ? currentUserId.value 
-      : teacherId
-    
-    teacher.value = await fetchTeacherData(targetId)
-    
+    loading.value = true;
+
+    // Получаем ID из параметров маршрута
+    const teacherId = route.params.id as string;
+
+    if (!teacherId) {
+      throw new Error('ID преподавателя не указан');
+    }
+
+    teacher.value = await fetchTeacherData(teacherId);
+
     // Проверяем, является ли это профиль текущего пользователя
     if (currentUserId.value && teacher.value.userId === currentUserId.value) {
-      isOwnProfile.value = true
+      isOwnProfile.value = true;
     }
   } catch (error) {
-    console.error('Ошибка загрузки данных:', error)
+    console.error('Ошибка загрузки данных:', error);
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-})
+});
 
 const navigateToProject = (projectId: string) => {
   router.push(`/project/${projectId}`)
@@ -163,23 +184,20 @@ const editProfile = () => {
 </script>
 
 <template>
-  <Header/>
+  <Header />
   <div class="teacher-profile-container">
     <div v-if="loading" class="loading-spinner">
       <div class="spinner"></div>
     </div>
-    
+
     <div v-else-if="teacher" class="teacher-profile">
       <!-- Шапка профиля -->
       <div class="profile-header">
         <div class="avatar-container">
-          <img 
-            src="../../../public/logo.png"
-            class="avatar"
-          >
+          <img src="../../../public/logo.png" class="avatar">
           <div class="verified-badge" v-if="teacher.isVerified">✓</div>
         </div>
-        
+
         <div class="profile-info">
           <div class="name-and-actions">
             <h1 class="teacher-name">{{ teacher.name }}</h1>
@@ -188,16 +206,12 @@ const editProfile = () => {
             </button>
           </div>
           <p class="teacher-position">{{ teacher.position }}</p>
-          
+
           <div class="rating-container">
             <div class="stars">
-              <span 
-                v-for="n in 5" 
-                :key="n" 
-                :class="['star', { 'filled': n <= Math.round(teacher.rating) }]"
-              >★</span>
+              <span v-for="n in 5" :key="n" :class="['star', { 'filled': n <= starRating }]">★</span>
             </div>
-            <span class="rating-value">{{ teacher.rating.toFixed(1) }}</span>
+            <span class="rating-value">{{ formattedRating }}</span>
           </div>
         </div>
       </div>
@@ -207,7 +221,7 @@ const editProfile = () => {
         <section class="about-section">
           <h2>О преподавателе</h2>
           <p class="bio">{{ teacher.bio || 'Информация о преподавателе пока не добавлена.' }}</p>
-          
+
           <div class="details-grid">
             <div class="detail-item">
               <span class="detail-label">Стаж:</span>
@@ -218,19 +232,27 @@ const editProfile = () => {
               <span class="detail-value">{{ teacher.specialization || 'Не указана' }}</span>
             </div>
             <div class="detail-item">
+              <span class="detail-label">Кафедра:</span>
+              <span class="detail-value">{{ teacher.department || 'Не указана' }}</span>
+            </div>
+            <div class="detail-item">
               <span class="detail-label">Email:</span>
               <a :href="`mailto:${teacher.email}`" class="detail-value link">{{ teacher.email }}</a>
             </div>
           </div>
 
           <!-- Социальные сети -->
-          <div v-if="teacher.socialLinks && (teacher.socialLinks.behance || teacher.socialLinks.dribbble || teacher.socialLinks.vk)" class="social-links">
+          <div
+            v-if="teacher.socialLinks && (teacher.socialLinks.behance || teacher.socialLinks.dribbble || teacher.socialLinks.vk)"
+            class="social-links">
             <h3>Социальные сети</h3>
             <div class="social-icons">
-              <a v-if="teacher.socialLinks.behance" :href="teacher.socialLinks.behance" target="_blank" class="social-link">
+              <a v-if="teacher.socialLinks.behance" :href="teacher.socialLinks.behance" target="_blank"
+                class="social-link">
                 <i class="fab fa-behance"></i>
               </a>
-              <a v-if="teacher.socialLinks.dribbble" :href="teacher.socialLinks.dribbble" target="_blank" class="social-link">
+              <a v-if="teacher.socialLinks.dribbble" :href="teacher.socialLinks.dribbble" target="_blank"
+                class="social-link">
                 <i class="fab fa-dribbble"></i>
               </a>
               <a v-if="teacher.socialLinks.vk" :href="teacher.socialLinks.vk" target="_blank" class="social-link">
@@ -244,12 +266,8 @@ const editProfile = () => {
         <section class="groups-section" v-if="teacher.groups && teacher.groups.length > 0">
           <h2>Курируемые группы</h2>
           <div class="groups-grid">
-            <router-link
-              v-for="group in teacher.groups"
-              :key="group.id"
-              :to="`/students?group=${group.id}`"
-              class="group-card"
-            >
+            <router-link v-for="group in teacher.groups" :key="group.id" :to="`/students?group=${group.id}`"
+              class="group-card">
               <span class="group-name">{{ group.name }}</span>
               <span class="student-count">{{ group.studentCount }} студентов</span>
             </router-link>
@@ -260,32 +278,27 @@ const editProfile = () => {
         <section class="projects-section" v-if="teacher.projects && teacher.projects.length > 0">
           <h2>Руководство проектами</h2>
           <div class="projects-grid">
-            <project-card
-              v-for="project in teacher.projects"
-              :key="project.id"
-              :project="project"
-              @click="navigateToProject(project.id)"
-            />
+            <project-card v-for="project in teacher.projects" :key="project.id" :project="project"
+              @click="navigateToProject(project.id)" />
           </div>
         </section>
 
         <!-- Сообщение, если нет групп или проектов -->
-        <div v-if="(!teacher.groups || teacher.groups.length === 0) && 
-                  (!teacher.projects || teacher.projects.length === 0)" 
-             class="empty-state">
+        <div v-if="(!teacher.groups || teacher.groups.length === 0) &&
+          (!teacher.projects || teacher.projects.length === 0)" class="empty-state">
           <h3>Пока нет информации</h3>
           <p>Группы и проекты появятся здесь после их добавления.</p>
         </div>
       </div>
     </div>
-    
+
     <div v-else class="not-found-message">
       <h3>Преподаватель не найден</h3>
       <p>Запрошенный профиль преподавателя не существует или был удален.</p>
       <router-link to="/teachers" class="back-link">← К списку преподавателей</router-link>
     </div>
   </div>
-  <Footer/>
+  <Footer />
 </template>
 <style scoped>
 @import "./teacherProfile.scss";
@@ -380,11 +393,11 @@ const editProfile = () => {
   .groups-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .group-card {
     padding: 1.25rem;
   }
-  
+
   .group-name {
     font-size: 1.1rem;
   }
@@ -394,7 +407,7 @@ const editProfile = () => {
   .groups-section h2 {
     font-size: 1.5rem;
   }
-  
+
   .group-card {
     padding: 1rem;
   }

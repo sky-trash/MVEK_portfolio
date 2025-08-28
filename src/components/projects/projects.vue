@@ -49,7 +49,7 @@ const loadProjects = async () => {
   try {
     const projectsSnapshot = await getDocs(collection(db, 'projects'));
     const usersSnapshot = await getDocs(collection(db, 'users'));
-    
+
     // Загружаем пользователей в Map для быстрого доступа
     const usersMap = new Map<string, User>();
     usersSnapshot.forEach((doc) => {
@@ -63,7 +63,7 @@ const loadProjects = async () => {
         role: data.role || ''
       });
     });
-    
+
     users.value = usersMap;
 
     // Загружаем проекты
@@ -105,7 +105,7 @@ const loadProjects = async () => {
         });
       }
     }
-    
+
     projects.value = projectsData;
   } catch (error) {
     console.error('Ошибка загрузки проектов:', error);
@@ -117,49 +117,49 @@ const loadProjects = async () => {
 // Получение уникальных значений для фильтров
 const projectTypes = computed(() => {
   const types = new Set(projects.value.map(p => p.type));
-  return ['all', ...types].filter(type => type && type !== 'Не указан');
+  return [...types].filter(type => type && type !== 'Не указан' && type !== 'all');
 });
 
 const projectGroups = computed(() => {
   const groups = new Set(projects.value.map(p => p.group));
-  return ['all', ...groups].filter(group => group && group !== 'Не указана');
+  return [...groups].filter(group => group && group !== 'Не указана' && group !== 'all');
 });
 
 const projectSpecialties = computed(() => {
   const specialties = new Set(projects.value.map(p => p.specialty));
-  return ['all', ...specialties].filter(specialty => specialty && specialty !== 'Не указана');
+  return [...specialties].filter(specialty => specialty && specialty !== 'Не указана' && specialty !== 'all');
 });
 
 // Фильтрация и сортировка проектов
 const filteredProjects = computed(() => {
   let result = [...projects.value];
-  
+
   // Фильтрация по поиску
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
-    result = result.filter(p => 
-      p.title.toLowerCase().includes(query) || 
+    result = result.filter(p =>
+      p.title.toLowerCase().includes(query) ||
       p.description.toLowerCase().includes(query) ||
       `${p.authorName} ${p.authorLname}`.toLowerCase().includes(query) ||
       p.tags.some(tag => tag.toLowerCase().includes(query))
     );
   }
-  
+
   // Фильтрация по типу
   if (selectedType.value !== 'all') {
     result = result.filter(p => p.type === selectedType.value);
   }
-  
+
   // Фильтрация по группе
   if (selectedGroup.value !== 'all') {
     result = result.filter(p => p.group === selectedGroup.value);
   }
-  
+
   // Фильтрация по специальности
   if (selectedSpecialty.value !== 'all') {
     result = result.filter(p => p.specialty === selectedSpecialty.value);
   }
-  
+
   // Сортировка
   if (sortBy.value === 'date') {
     result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -168,7 +168,7 @@ const filteredProjects = computed(() => {
   } else if (sortBy.value === 'views') {
     result.sort((a, b) => b.views - a.views);
   }
-  
+
   return result;
 });
 
@@ -178,7 +178,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <Header/>
+  <Header />
   <main class="projects-page">
     <div class="container">
       <!-- Заголовок страницы -->
@@ -190,12 +190,8 @@ onMounted(() => {
       <!-- Фильтры и сортировка -->
       <div class="projects-filters">
         <div class="search-box">
-          <input 
-            v-model="searchQuery"
-            type="text" 
-            placeholder="Поиск проектов, авторов или тегов..."
-            class="search-input"
-          >
+          <input v-model="searchQuery" type="text" placeholder="Поиск проектов, авторов или тегов..."
+            class="search-input">
           <i class="fas fa-search"></i>
         </div>
 
@@ -204,11 +200,7 @@ onMounted(() => {
             <label>Тип проекта:</label>
             <select v-model="selectedType" class="filter-select">
               <option value="all">Все типы</option>
-              <option 
-                v-for="type in projectTypes" 
-                :key="type" 
-                :value="type"
-              >
+              <option v-for="type in projectTypes" :key="type" :value="type">
                 {{ type }}
               </option>
             </select>
@@ -218,11 +210,7 @@ onMounted(() => {
             <label>Группа:</label>
             <select v-model="selectedGroup" class="filter-select">
               <option value="all">Все группы</option>
-              <option 
-                v-for="group in projectGroups" 
-                :key="group" 
-                :value="group"
-              >
+              <option v-for="group in projectGroups" :key="group" :value="group">
                 {{ group }}
               </option>
             </select>
@@ -232,15 +220,12 @@ onMounted(() => {
             <label>Специальность:</label>
             <select v-model="selectedSpecialty" class="filter-select">
               <option value="all">Все специальности</option>
-              <option 
-                v-for="specialty in projectSpecialties" 
-                :key="specialty" 
-                :value="specialty"
-              >
+              <option v-for="specialty in projectSpecialties" :key="specialty" :value="specialty">
                 {{ specialty }}
               </option>
             </select>
           </div>
+
 
           <div class="filter-group">
             <label>Сортировка:</label>
@@ -259,11 +244,7 @@ onMounted(() => {
       </div>
 
       <div v-else-if="filteredProjects.length > 0" class="projects-grid">
-        <div 
-          v-for="project in filteredProjects" 
-          :key="project.id" 
-          class="project-card"
-        >
+        <div v-for="project in filteredProjects" :key="project.id" class="project-card">
           <router-link :to="`/project/${project.id}`" class="project-link">
             <div class="project-image-container">
               <img :src="project.coverImage" :alt="project.title" class="project-image">
@@ -294,11 +275,7 @@ onMounted(() => {
                 </span>
               </div>
               <div class="project-tags">
-                <span 
-                  v-for="tag in project.tags" 
-                  :key="tag" 
-                  class="tag"
-                >
+                <span v-for="tag in project.tags" :key="tag" class="tag">
                   {{ tag }}
                 </span>
               </div>
@@ -310,21 +287,18 @@ onMounted(() => {
       <div v-else class="empty-state">
         <i class="fas fa-folder-open"></i>
         <p>Проекты не найдены</p>
-        <button 
-          @click="
-            searchQuery = '';
-            selectedType = 'all';
-            selectedGroup = 'all';
-            selectedSpecialty = 'all';
-          " 
-          class="reset-filters"
-        >
+        <button @click="
+          searchQuery = '';
+        selectedType = 'all';
+        selectedGroup = 'all';
+        selectedSpecialty = 'all';
+        " class="reset-filters">
           Сбросить фильтры
         </button>
       </div>
     </div>
   </main>
-  <Footer/>
+  <Footer />
 </template>
 <style scoped>
 @import "./projects.scss";
