@@ -460,11 +460,11 @@ const editProfile = () => {
               <h3 class="section-title">Контакты</h3>
               <ul class="contact-list">
                 <li v-if="profileData.email">
-                  <i class="fas fa-envelope"></i>
+                  <i class="fas fa-envelope">✉️</i>
                   <span>{{ profileData.email }}</span>
                 </li>
                 <li>
-                  <i class="fab fa-behance"></i>
+                  <i class="fab fa-behance">💿</i>
                   <input v-if="isOwnProfile" v-model="profileData.socialLinks.behance" placeholder="Ссылка на Behance"
                     class="contact-input" @blur="updateContacts">
                   <a v-else :href="profileData.socialLinks.behance" target="_blank"
@@ -474,7 +474,7 @@ const editProfile = () => {
                   <span v-if="!isOwnProfile && !profileData.socialLinks.behance">Не указано</span>
                 </li>
                 <li>
-                  <i class="fab fa-dribbble"></i>
+                  <i class="fab fa-dribbble">💿</i>
                   <input v-if="isOwnProfile" v-model="profileData.socialLinks.dribbble" placeholder="Ссылка на Dribbble"
                     class="contact-input" @blur="updateContacts">
                   <a v-else :href="profileData.socialLinks.dribbble" target="_blank"
@@ -484,7 +484,7 @@ const editProfile = () => {
                   <span v-if="!isOwnProfile && !profileData.socialLinks.dribbble">Не указано</span>
                 </li>
                 <li>
-                  <i class="fab fa-vk"></i>
+                  <i class="fab fa-vk">✌️</i>
                   <input v-if="isOwnProfile" v-model="profileData.socialLinks.vk" placeholder="Ссылка на VK"
                     class="contact-input" @blur="updateContacts">
                   <a v-else :href="profileData.socialLinks.vk" target="_blank" v-show="profileData.socialLinks.vk">

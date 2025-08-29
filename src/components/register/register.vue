@@ -80,7 +80,7 @@ const handleRegister = async () => {
   try {
     // 1. Проверка логина
     const loginAvailable = await checkLogin(formData.value.login);
-    if (!loginAvailable) throw new Error('Это имя пользователя уже занято');
+    if (!loginAvailable) throw new Error('Этот логин уже занят');
 
     // 2. Создание пользователя
     const userCredential = await createUserWithEmailAndPassword(

@@ -187,7 +187,7 @@ onMounted(() => {
         :key="student.id" 
         class="student-card"
       >
-        <router-link :to="`/profile/${student.id}`" class="student-link">
+        <router-link :to="`/studentsProfile/${student.id}`" class="student-link">
           <div class="student-avatar">
             <img src="../../../public/logo.png" class="avatar-image">
             <div class="student-rating">

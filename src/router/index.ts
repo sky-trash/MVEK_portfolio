@@ -6,6 +6,7 @@ import RegisterView from '@/pages/RegisterView.vue'
 import AuthView from '@/pages/AuthView.vue'
 import ProfileView from '@/pages/ProfileView.vue'
 import AboutView from '@/pages/AboutView.vue'
+import TermsView from '@/pages/TermsView.vue'
 import StudentsView from '@/pages/StudentsView.vue'
 import TeacherView from '@/pages/TeacherView.vue'
 import ContactView from '@/pages/ContactView.vue'
@@ -102,6 +103,15 @@ const routes = [
       requiresAuth: false
     }
   },
+    {
+    path: '/terms',
+    name: 'terms',
+    component: TermsView,
+    meta: {
+      title: 'Условия использования',
+      requiresAuth: false
+    }
+  },
   {
     path: '/students',
     name: 'students',
@@ -112,7 +122,7 @@ const routes = [
     }
   },
   {
-    path: '/students/:id',
+    path: '/studentsProfile/:id',
     name: 'student-profile',
     component: StudentProfileView,
     meta: {
