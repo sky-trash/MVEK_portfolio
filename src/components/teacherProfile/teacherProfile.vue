@@ -4,7 +4,7 @@ import Footer from '../layouts/footer/footer.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProjectCard from '@/components/projectCard/projectCard.vue'
-import { doc, getDoc, collection, query, where, getDocs, orderBy } from 'firebase/firestore'
+import { doc, getDoc, collection, getDocs, orderBy, where, query } from 'firebase/firestore'
 import { db, auth } from '@/firebase'
 
 interface Group {
@@ -22,6 +22,7 @@ interface Project {
   type: string
   rating: number
   teacherId?: string
+  createdAt?: any
 }
 
 interface Teacher {
@@ -54,6 +55,7 @@ const teacher = ref<Teacher | null>(null)
 const loading = ref(true)
 const isOwnProfile = ref(false)
 const currentUserId = ref<string | null>(null)
+const isBaseProfile = ref(false) // Флаг для базового профиля
 
 const formattedRating = computed(() => {
   const rating = teacher.value?.rating || 0;
@@ -73,36 +75,64 @@ onMounted(() => {
   }
 })
 
-// Функция для получения данных преподавателя из коллекции users
-const fetchTeacherFromUsers = async (teacherId: string) => {
+// Функция для получения всех проектов и фильтрации на клиенте
+const fetchProjectsForTeacher = async (teacherId: string) => {
   try {
-    // Упрощенный запрос - ищем только по userId
-    const usersQuery = query(collection(db, 'users'), where('userId', '==', teacherId))
-    const usersSnapshot = await getDocs(usersQuery)
+    const projectsSnapshot = await getDocs(collection(db, 'projects'));
+    const allProjects = projectsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Project[];
+    
+    // Фильтруем проекты по teacherId на клиенте
+    return allProjects.filter(project => project.teacherId === teacherId)
+      .sort((a, b) => {
+        // Сортируем по дате создания (новые сначала)
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB.getTime() - dateA.getTime();
+      });
+  } catch (error) {
+    console.error('Ошибка загрузки проектов:', error);
+    return [];
+  }
+}
 
-    if (!usersSnapshot.empty) {
-      const userDoc = usersSnapshot.docs[0]
-      const userData = userDoc.data()
+// Функция для получения всех групп и фильтрации на клиенте
+const fetchGroupsForTeacher = async (teacherId: string) => {
+  try {
+    const groupsSnapshot = await getDocs(collection(db, 'groups'));
+    const allGroups = groupsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as Group[];
+    
+    // Фильтруем группы по teacherId на клиенте
+    return allGroups.filter(group => group.teacherId === teacherId);
+  } catch (error) {
+    console.error('Ошибка загрузки групп:', error);
+    return [];
+  }
+}
 
-      // Получаем группы, которые курирует преподаватель (упрощенный запрос)
-      const groupsQuery = query(collection(db, 'groups'))
-      const groupsSnapshot = await getDocs(groupsQuery)
-      const groups = groupsSnapshot.docs
-        .filter(doc => doc.data().teacherId === teacherId)
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Group[]
+// Функция для получения данных преподавателя по ID пользователя
+const fetchTeacherByUserId = async (userId: string) => {
+  try {
+    const usersQuery = query(collection(db, 'users'), where('userId', '==', userId));
+    const querySnapshot = await getDocs(usersQuery);
+    
+    if (!querySnapshot.empty) {
+      const userDoc = querySnapshot.docs[0];
+      const userData = userDoc.data();
+      
+      if (userData.role !== 'teacher') {
+        throw new Error('Пользователь не является преподавателем');
+      }
 
-      // Получаем все проекты и фильтруем на клиенте
-      const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
-      const projectsSnapshot = await getDocs(projectsQuery)
-      const projects = projectsSnapshot.docs
-        .filter(doc => doc.data().teacherId === teacherId)
-        .map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Project[]
+      const [groups, projects] = await Promise.all([
+        fetchGroupsForTeacher(userId),
+        fetchProjectsForTeacher(userId)
+      ]);
 
       return {
         id: userDoc.id,
@@ -118,29 +148,75 @@ const fetchTeacherFromUsers = async (teacherId: string) => {
         email: userData.email || '',
         groups: groups,
         projects: projects,
-        socialLinks: userData.socialLinks || {}
-      } as Teacher
+        socialLinks: userData.socialLinks || {},
+        department: userData.department || '',
+        subjects: userData.subjects || []
+      } as Teacher;
     }
-
-    return null
+    
+    throw new Error('Преподаватель не найден');
   } catch (error) {
-    console.error('Ошибка поиска преподавателя в users:', error)
-    return null
+    console.error('Ошибка загрузки данных преподавателя:', error);
+    throw error;
   }
-}
+};
 
-const fetchTeacherData = async (id: string) => {
+// Функция для получения данных преподавателя
+const fetchTeacherData = async (teacherId: string) => {
   try {
-    // Сначала ищем в коллекции teachers
-    const teacherDoc = await getDoc(doc(db, 'teachers', id));
-    if (teacherDoc.exists()) {
-      return { id: teacherDoc.id, ...teacherDoc.data() } as Teacher;
+    // Сначала ищем в коллекции users
+    const userDoc = await getDoc(doc(db, 'users', teacherId));
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      
+      // Проверяем, является ли пользователь преподавателем
+      if (userData.role !== 'teacher') {
+        throw new Error('Пользователь не является преподавателем');
+      }
+
+      // Параллельно загружаем группы и проекты
+      const [groups, projects] = await Promise.all([
+        fetchGroupsForTeacher(teacherId),
+        fetchProjectsForTeacher(teacherId)
+      ]);
+
+      return {
+        id: userDoc.id,
+        userId: userData.userId,
+        name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
+        position: userData.position || 'Преподаватель',
+        avatar: userData.avatarUrl || '',
+        isVerified: userData.isVerified || false,
+        rating: userData.rating || 0,
+        bio: userData.bio || '',
+        experience: userData.experience || 0,
+        specialization: userData.specialization || '',
+        email: userData.email || '',
+        groups: groups,
+        projects: projects,
+        socialLinks: userData.socialLinks || {},
+        department: userData.department || '',
+        subjects: userData.subjects || []
+      } as Teacher;
     }
 
-    // Если не найден в teachers, ищем в users
-    const userDoc = await getDoc(doc(db, 'users', id));
-    if (userDoc.exists() && userDoc.data().role === 'teacher') {
-      return { id: userDoc.id, ...userDoc.data() } as Teacher;
+    // Если не найден в users, ищем в коллекции teachers (для обратной совместимости)
+    const teacherDoc = await getDoc(doc(db, 'teachers', teacherId));
+    if (teacherDoc.exists()) {
+      const teacherData = teacherDoc.data();
+      
+      // Для старой структуры также загружаем группы и проекты
+      const [groups, projects] = await Promise.all([
+        fetchGroupsForTeacher(teacherId),
+        fetchProjectsForTeacher(teacherId)
+      ]);
+
+      return {
+        id: teacherDoc.id,
+        ...teacherData,
+        groups: groups,
+        projects: projects
+      } as Teacher;
     }
 
     throw new Error('Преподаватель не найден');
@@ -158,14 +234,29 @@ onMounted(async () => {
     const teacherId = route.params.id as string;
 
     if (!teacherId) {
-      throw new Error('ID преподавателя не указан');
-    }
+      // Если ID не передан, загружаем собственный профиль
+      isBaseProfile.value = true;
+      const user = auth.currentUser;
+      
+      if (!user) {
+        throw new Error('Пользователь не авторизован');
+      }
 
-    teacher.value = await fetchTeacherData(teacherId);
+      teacher.value = await fetchTeacherByUserId(user.uid);
 
-    // Проверяем, является ли это профиль текущего пользователя
-    if (currentUserId.value && teacher.value.userId === currentUserId.value) {
-      isOwnProfile.value = true;
+      // Проверяем, является ли это профиль текущего пользователя
+      if (currentUserId.value && teacher.value.userId === currentUserId.value) {
+        isOwnProfile.value = true;
+      }
+    } else {
+      // Загружаем профиль по ID
+      isBaseProfile.value = false;
+      teacher.value = await fetchTeacherData(teacherId);
+
+      // Проверяем, является ли это профиль текущего пользователя
+      if (currentUserId.value && teacher.value.userId === currentUserId.value) {
+        isOwnProfile.value = true;
+      }
     }
   } catch (error) {
     console.error('Ошибка загрузки данных:', error);
@@ -194,7 +285,7 @@ const editProfile = () => {
       <!-- Шапка профиля -->
       <div class="profile-header">
         <div class="avatar-container">
-          <img src="../../../public/logo.png" class="avatar">
+          <img :src="teacher.avatar || '../../../public/logo.png'" class="avatar">
           <div class="verified-badge" v-if="teacher.isVerified">✓</div>
         </div>
 
@@ -243,7 +334,7 @@ const editProfile = () => {
 
           <!-- Социальные сети -->
           <div
-            v-if="teacher.socialLinks && (teacher.socialLinks.behance || teacher.socialLinks.dribbble || teacher.socialLinks.vk)"
+            v-if="teacher.socialLinks && (teacher.socialLinks.behance || teacher.socialLinks.dribbble || teacher.socialLinks.vk || teacher.socialLinks.telegram)"
             class="social-links">
             <h3>Социальные сети</h3>
             <div class="social-icons">
@@ -257,6 +348,9 @@ const editProfile = () => {
               </a>
               <a v-if="teacher.socialLinks.vk" :href="teacher.socialLinks.vk" target="_blank" class="social-link">
                 <i class="fab fa-vk"></i>
+              </a>
+              <a v-if="teacher.socialLinks.telegram" :href="teacher.socialLinks.telegram" target="_blank" class="social-link">
+                <i class="fab fa-telegram"></i>
               </a>
             </div>
           </div>

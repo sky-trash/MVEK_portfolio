@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 import { collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db } from '@/firebase'; // Добавляем импорт db
+import { auth, db } from '@/firebase';
 
 const router = useRouter();
 
@@ -21,15 +21,23 @@ const errorMessage = ref('');
 // Функция для получения роли пользователя из Firestore
 const getUserRole = async (userId: string) => {
   try {
+    // Проверяем localStorage для быстрого доступа
+    const cachedRole = localStorage.getItem('userRole');
+    if (cachedRole) {
+      return cachedRole;
+    }
+    
     const q = query(collection(db, 'users'), where('userId', '==', userId));
     const querySnapshot = await getDocs(q);
     
     if (!querySnapshot.empty) {
       const userData = querySnapshot.docs[0].data();
-      return userData.role || 'student'; // По умолчанию student
+      const role = userData.role || 'student';
+      localStorage.setItem('userRole', role);
+      return role;
     }
     
-    return 'student'; // Роль по умолчанию, если не найдена
+    return 'student';
   } catch (error) {
     console.error('Error getting user role:', error);
     return 'student';
@@ -64,6 +72,7 @@ const handleLogin = async () => {
     // Получаем роль пользователя
     const userRole = await getUserRole(userCredential.user.uid);
     storage.setItem('userRole', userRole);
+    localStorage.setItem('userRole', userRole);
     
     // Перенаправление в зависимости от роли
     if (userRole === 'student') {
@@ -71,7 +80,7 @@ const handleLogin = async () => {
     } else if (userRole === 'teacher') {
       router.push('/teacherProfile');
     } else {
-      router.push('/profile'); // По умолчанию для студента
+      router.push('/profile');
     }
     
   } catch (error: any) {
@@ -125,6 +134,7 @@ onMounted(() => {
       const userRole = await getUserRole(user.uid);
       const storage = localStorage.getItem('authToken') ? localStorage : sessionStorage;
       storage.setItem('userRole', userRole);
+      localStorage.setItem('userRole', userRole);
       
       if (userRole === 'student') {
         router.push('/profile');
@@ -188,9 +198,6 @@ const goToRegister = () => {
               <span class="checkbox-custom"></span>
               Запомнить меня
             </label>
-            <router-link to="/forgot-password" class="forgot-password">
-              Забыли пароль?
-            </router-link>
           </div>
 
           <div v-if="errorMessage" class="error-message">

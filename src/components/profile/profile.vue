@@ -371,6 +371,7 @@ onMounted(() => {
     loadProfileData();
   });
 });
+
 const editProfile = () => {
   router.push('/profile/edit');
 };

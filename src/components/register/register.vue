@@ -112,10 +112,13 @@ const handleRegister = async () => {
     // 4. Сохранение данных пользователя
     await addDoc(collection(db, 'users'), userData);
     
-    // 5. Отправка подтверждения
+    // 5. Сохраняем роль в localStorage
+    localStorage.setItem('userRole', formData.value.role);
+    
+    // 6. Отправка подтверждения
     await sendEmailVerification(userCredential.user);
 
-    // 6. Перенаправление в зависимости от роли
+    // 7. Перенаправление в зависимости от роли
     if (formData.value.role === 'student') {
       router.push('/profile');
     } else {
