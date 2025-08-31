@@ -2,11 +2,14 @@
 
 interface Comment {
   id: string;
-  projectId: string; 
+  projectId: string;
   author: string;
   authorId: string;
   text: string;
   createdAt: any;
+  name: string;
+  likes: number;
+  userName: string;
 }
 
 import Header from '../layouts/header/header.vue'
@@ -18,7 +21,7 @@ import {
   collection, addDoc, query, where, getDocs, orderBy, onSnapshot,
   setDoc, increment, serverTimestamp
 } from 'firebase/firestore'
-import { db, auth } from '@/firebase'
+import { db, auth } from '@/firebase.ts'
 import { onAuthStateChanged } from 'firebase/auth'
 
 const route = useRoute()
@@ -36,6 +39,8 @@ const userInCart = ref(false)
 const newComment = ref('')
 const comments = ref<Comment[]>([]);
 const userCommentLikes = ref<Set<string>>(new Set())
+
+const q = query(collection(db, "comments"), where("projectId", "==", project.value.id));
 
 // Загрузка данных проекта
 const loadProjectData = async () => {
@@ -99,21 +104,37 @@ const loadComments = async () => {
     const querySnapshot = await getDocs(commentsQuery);
 
     // Фильтруем комментарии на стороне клиента
-    comments.value = querySnapshot.docs
-      .map(doc => ({
+    comments.value = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
         id: doc.id,
-        ...doc.data()
-      }))
-      .filter(comment => comment.projectId === project.value.id);
+        projectId: data.projectId || '',
+        author: data.author || '',
+        authorId: data.authorId || '',
+        text: data.text || '',
+        createdAt: data.createdAt || null,
+        userName: data.userName || '',
+        name: data.name || '',
+        likes: data.likes || 0,
+      };
+    });
 
     // Также подписываемся на реальные обновления
     const unsubscribe = onSnapshot(commentsQuery, (snapshot) => {
-      comments.value = snapshot.docs
-        .map(doc => ({
+      comments.value = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
           id: doc.id,
-          ...doc.data()
-        }))
-        .filter(comment => comment.projectId === project.value.id);
+          projectId: data.projectId || '',
+          author: data.author || '',
+          authorId: data.authorId || '',
+          text: data.text || '',
+          createdAt: data.createdAt || null,
+          userName: data.userName || '',
+          name: data.name || '',
+          likes: data.likes || 0,
+        };
+      });
     });
 
     return unsubscribe;
@@ -122,13 +143,21 @@ const loadComments = async () => {
 
     // Альтернативный вариант - попробовать загрузить без фильтрации
     try {
-      const allComments = await getDocs(collection(db, 'comments'));
-      comments.value = allComments.docs
-        .map(doc => ({
+      const querySnapshot = await getDocs(q);
+      comments.value = querySnapshot.docs.map((doc: any) => {
+        const data = doc.data();
+        return {
           id: doc.id,
-          ...doc.data()
-        }))
-        .filter(comment => comment.projectId === project.value.id);
+          projectId: data.projectId || '',
+          author: data.author || '',
+          authorId: data.authorId || '',
+          text: data.text || '',
+          createdAt: data.createdAt || null,
+          userName: data.userName || '',
+          name: data.name || '',
+          likes: data.likes || 0,
+        };
+      });
     } catch (fallbackErr) {
       console.error('Ошибка при альтернативной загрузке:', fallbackErr);
       comments.value = [];
@@ -273,15 +302,15 @@ const addComment = async () => {
   try {
     // Получаем данные пользователя из коллекции users
     let userName = 'Аноним'
-    
+
     try {
       const userDoc = await getDoc(doc(db, 'users', currentUser.value.uid))
       console.log('Данные пользователя из Firestore:', userDoc.exists() ? userDoc.data() : 'Документ не существует')
-      
+
       if (userDoc.exists()) {
         const userData = userDoc.data()
         console.log('Все поля пользователя:', Object.keys(userData))
-        
+
         // Проверяем различные возможные варианты полей
         if (userData.fullName) {
           userName = userData.fullName
@@ -294,15 +323,15 @@ const addComment = async () => {
         } else if (userData.email) {
           userName = userData.email.split('@')[0] // Используем часть email до @
         }
-        
+
         console.log('Выбранное имя пользователя:', userName)
       }
     } catch (userErr) {
       console.error('Ошибка получения данных пользователя:', userErr)
       // Используем displayName из auth или часть email
-      userName = currentUser.value.displayName || 
-                currentUser.value.email?.split('@')[0] || 
-                'Аноним'
+      userName = currentUser.value.displayName ||
+        currentUser.value.email?.split('@')[0] ||
+        'Аноним'
     }
 
     console.log('Имя для комментария:', userName)
@@ -319,7 +348,7 @@ const addComment = async () => {
     })
 
     newComment.value = ''
-    
+
     // Перезагружаем комментарии
     await loadComments()
 
@@ -615,7 +644,7 @@ onMounted(() => {
             <div class="comment-header">
               <img src="../../../public/logo.png" class="comment-avatar">
               <div class="comment-user">
-                <strong>{{ comment.userName }}</strong>
+                <strong>{{ comment.name }}</strong>
                 <span class="comment-date">
                   {{ formatCommentDate(comment.createdAt) }}
                 </span>
