@@ -40,8 +40,6 @@ const newComment = ref('')
 const comments = ref<Comment[]>([]);
 const userCommentLikes = ref<Set<string>>(new Set())
 
-const q = query(collection(db, "comments"), where("projectId", "==", project.value.id));
-
 // Загрузка данных проекта
 const loadProjectData = async () => {
   try {
@@ -101,6 +99,7 @@ const loadComments = async () => {
       orderBy('createdAt', 'desc')
     );
 
+    const q = query(collection(db, "comments"), where("projectId", "==", project.value.id));
     const querySnapshot = await getDocs(commentsQuery);
 
     // Фильтруем комментарии на стороне клиента

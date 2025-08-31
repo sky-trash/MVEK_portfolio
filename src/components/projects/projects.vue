@@ -3,7 +3,7 @@ import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
 import { ref, computed, onMounted } from 'vue';
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/firebase';
+import { db } from '@/firebase'; // УБРАЛИ .ts - импорт без расширения
 
 interface Project {
   id: string;
@@ -21,7 +21,7 @@ interface Project {
   description: string;
   coverImage: string;
   images: string[];
-  createdAt: any;
+  createdAt: Date; // Изменили на Date
 }
 
 interface User {
@@ -34,6 +34,7 @@ interface User {
 }
 
 const projects = ref<Project[]>([]);
+// УБРАЛИ: const project = ref<any>(null) - эта переменная не используется здесь
 const users = ref<Map<string, User>>(new Map());
 const isLoading = ref(true);
 
@@ -75,13 +76,22 @@ const loadProjects = async () => {
 
       // Добавляем только проекты студентов
       if (author && author.role === 'student') {
-        // Обработка даты создания
+        // Обработка даты создания - БЕЗОПАСНАЯ версия
         let createdAtDate: Date;
-        if (data.createdAt && typeof data.createdAt.toDate === 'function') {
-          createdAtDate = data.createdAt.toDate();
-        } else if (data.createdAt) {
-          createdAtDate = new Date(data.createdAt);
-        } else {
+        
+        try {
+          if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+            createdAtDate = data.createdAt.toDate();
+          } else if (data.createdAt && data.createdAt.seconds) {
+            // Если это Firebase Timestamp объект
+            createdAtDate = new Date(data.createdAt.seconds * 1000);
+          } else if (data.createdAt) {
+            createdAtDate = new Date(data.createdAt);
+          } else {
+            createdAtDate = new Date();
+          }
+        } catch (error) {
+          console.warn('Ошибка обработки даты:', error);
           createdAtDate = new Date();
         }
 
@@ -117,17 +127,17 @@ const loadProjects = async () => {
 // Получение уникальных значений для фильтров
 const projectTypes = computed(() => {
   const types = new Set(projects.value.map(p => p.type));
-  return [...types].filter(type => type && type !== 'Не указан' && type !== 'all');
+  return ['all', ...types].filter(type => type && type !== 'Не указан');
 });
 
 const projectGroups = computed(() => {
   const groups = new Set(projects.value.map(p => p.group));
-  return [...groups].filter(group => group && group !== 'Не указана' && group !== 'all');
+  return ['all', ...groups].filter(group => group && group !== 'Не указана');
 });
 
 const projectSpecialties = computed(() => {
   const specialties = new Set(projects.value.map(p => p.specialty));
-  return [...specialties].filter(specialty => specialty && specialty !== 'Не указана' && specialty !== 'all');
+  return ['all', ...specialties].filter(specialty => specialty && specialty !== 'Не указана');
 });
 
 // Фильтрация и сортировка проектов
@@ -164,9 +174,9 @@ const filteredProjects = computed(() => {
   if (sortBy.value === 'date') {
     result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   } else if (sortBy.value === 'rating') {
-    result.sort((a, b) => b.rating - a.rating);
+    result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
   } else if (sortBy.value === 'views') {
-    result.sort((a, b) => b.views - a.views);
+    result.sort((a, b) => (b.views || 0) - (a.views || 0));
   }
 
   return result;
@@ -226,7 +236,6 @@ onMounted(() => {
             </select>
           </div>
 
-
           <div class="filter-group">
             <label>Сортировка:</label>
             <select v-model="sortBy" class="filter-select">
@@ -244,38 +253,38 @@ onMounted(() => {
       </div>
 
       <div v-else-if="filteredProjects.length > 0" class="projects-grid">
-        <div v-for="project in filteredProjects" :key="project.id" class="project-card">
-          <router-link :to="`/project/${project.id}`" class="project-link">
+        <div v-for="projectItem in filteredProjects" :key="projectItem.id" class="project-card">
+          <router-link :to="`/project/${projectItem.id}`" class="project-link">
             <div class="project-image-container">
-              <img :src="project.coverImage" :alt="project.title" class="project-image">
+              <img :src="projectItem.coverImage" :alt="projectItem.title" class="project-image">
               <div class="project-overlay">
                 <span class="project-rating">
-                  <i class="fas fa-star"></i> {{ project.rating.toFixed(1) }}
+                  <i class="fas fa-star"></i> {{ projectItem.rating.toFixed(1) }}
                 </span>
                 <span class="project-views">
-                  <i class="fas fa-eye"></i> {{ project.views }}
+                  <i class="fas fa-eye"></i> {{ projectItem.views }}
                 </span>
               </div>
             </div>
             <div class="project-info">
-              <h3 class="project-title">{{ project.title }}</h3>
-              <p class="project-type">{{ project.type }}</p>
+              <h3 class="project-title">{{ projectItem.title }}</h3>
+              <p class="project-type">{{ projectItem.type }}</p>
               <div class="project-meta">
                 <span class="meta-item">
-                  <i class="fas fa-user"></i> {{ project.authorName }} {{ project.authorLname }}
+                  <i class="fas fa-user"></i> {{ projectItem.authorName }} {{ projectItem.authorLname }}
                 </span>
                 <span class="meta-item">
-                  <i class="fas fa-users"></i> {{ project.group }}
+                  <i class="fas fa-users"></i> {{ projectItem.group }}
                 </span>
                 <span class="meta-item">
-                  <i class="fas fa-graduation-cap"></i> {{ project.specialty }}
+                  <i class="fas fa-graduation-cap"></i> {{ projectItem.specialty }}
                 </span>
                 <span class="meta-item">
-                  <i class="fas fa-calendar-alt"></i> {{ project.date }}
+                  <i class="fas fa-calendar-alt"></i> {{ projectItem.date }}
                 </span>
               </div>
               <div class="project-tags">
-                <span v-for="tag in project.tags" :key="tag" class="tag">
+                <span v-for="tag in projectItem.tags" :key="tag" class="tag">
                   {{ tag }}
                 </span>
               </div>
@@ -289,9 +298,9 @@ onMounted(() => {
         <p>Проекты не найдены</p>
         <button @click="
           searchQuery = '';
-        selectedType = 'all';
-        selectedGroup = 'all';
-        selectedSpecialty = 'all';
+          selectedType = 'all';
+          selectedGroup = 'all';
+          selectedSpecialty = 'all';
         " class="reset-filters">
           Сбросить фильтры
         </button>
