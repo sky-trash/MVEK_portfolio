@@ -71,17 +71,17 @@ const handleSubmit = async () => {
           
           <div class="contact-method">
             <div class="icon-wrapper">
-              <i class="fas fa-map-marker-alt"></i>
+              <i class="fas fa-map-marker-alt">📍</i>
             </div>
             <div>
               <h3>Адрес</h3>
-              <p>г. Москва, ул. Дизайнерская, д. 15, корп. 2</p>
+              <p>г. Ижевск, ул. Пушкинская, д. 268Ж</p>
             </div>
           </div>
 
           <div class="contact-method">
             <div class="icon-wrapper">
-              <i class="fas fa-phone-alt"></i>
+              <i class="fas fa-phone-alt">📞</i>
             </div>
             <div>
               <h3>Телефон</h3>
@@ -91,7 +91,7 @@ const handleSubmit = async () => {
 
           <div class="contact-method">
             <div class="icon-wrapper">
-              <i class="fas fa-envelope"></i>
+              <i class="fas fa-envelope">📧</i>
             </div>
             <div>
               <h3>Email</h3>
@@ -101,7 +101,7 @@ const handleSubmit = async () => {
 
           <div class="contact-method">
             <div class="icon-wrapper">
-              <i class="fas fa-clock"></i>
+              <i class="fas fa-clock">🕐</i>
             </div>
             <div>
               <h3>Часы работы</h3>

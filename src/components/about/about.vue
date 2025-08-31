@@ -1,18 +1,14 @@
 <script setup lang="ts">
 import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
+import { ref, onMounted } from 'vue';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { db } from '@/firebase';
 
 const collegeInfo = {
   name: "МВЕК Колледж",
   description: "Ведущее учебное заведение в области дизайна и визуальных искусств с многолетней историей и современным подходом к образованию.",
   founded: 1998,
-  specialties: [
-    "Графический дизайн",
-    "UX/UI дизайн",
-    "Промышленный дизайн",
-    "Дизайн интерьеров",
-    "Фотография"
-  ],
   stats: {
     students: 1200,
     teachers: 85,
@@ -43,6 +39,45 @@ const advantages = [
     description: "Сотрудничество с ведущими дизайн-студиями и компаниями"
   }
 ];
+
+// Специальности из базы данных
+const specialties = ref<any[]>([]);
+const isLoading = ref(true);
+const error = ref('');
+
+// Загрузка специальностей из Firestore
+const loadSpecialties = async () => {
+  try {
+    // Получаем все документы из коллекции 'specialties'
+    const querySnapshot = await getDocs(collection(db, 'specialties'));
+    
+    // Преобразуем данные в массив объектов
+    specialties.value = querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    // Сортируем по имени (если нужно)
+    specialties.value.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    console.error('Ошибка загрузки специальностей:', err);
+    error.value = 'Не удалось загрузить специальности';
+    // Запасной вариант - статические данные
+    specialties.value = [
+      { id: '1', name: "Графический дизайн" },
+      { id: '2', name: "UX/UI дизайн" },
+      { id: '3', name: "Промышленный дизайн" },
+      { id: '4', name: "Дизайн интерьеров" },
+      { id: '5', name: "Фотография" }
+    ];
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+onMounted(() => {
+  loadSpecialties();
+});
 </script>
 
 <template>
@@ -79,10 +114,21 @@ const advantages = [
     <section class="specialties-section">
       <div class="container">
         <h2 class="section-title">Наши специальности</h2>
-        <div class="specialties-grid">
-          <div v-for="(specialty, index) in collegeInfo.specialties" :key="index" class="specialty-card">
+        
+        <div v-if="isLoading" class="loading-specialties">
+          <div class="loading-spinner"></div>
+          <p>Загрузка специальностей...</p>
+        </div>
+        
+        <div v-else-if="error" class="error-message">
+          <p>{{ error }}</p>
+        </div>
+        
+        <div v-else class="specialties-grid">
+          <div v-for="(specialty, index) in specialties" :key="specialty.id" class="specialty-card">
             <span class="specialty-number">0{{ index + 1 }}</span>
-            <h3 class="specialty-name">{{ specialty }}</h3>
+            <h3 class="specialty-name">{{ specialty.name }}</h3>
+            <p v-if="specialty.description" class="specialty-description">{{ specialty.description }}</p>
           </div>
         </div>
       </div>

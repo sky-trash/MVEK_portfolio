@@ -17,6 +17,7 @@ import ProjectDetailsView from '@/pages/ProjectDetailsView.vue'
 import NotFoundView from '@/pages/NotFoundView.vue'
 import EditProfileView from '@/pages/EditProfileView.vue'
 import EditTeacherProfileView from '@/pages/EditTeacherProfileView.vue' 
+import AdminPanelViews from '@/pages/AdminPanelViews.vue'
 
 const routes = [
   {
@@ -183,6 +184,12 @@ const routes = [
     props: true
   },
   {
+    path: '/admin-panel',
+    name: 'AdminPanel',
+    component: AdminPanelViews,
+    meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: NotFoundView,
@@ -278,5 +285,15 @@ router.beforeEach(async (to, from, next) => {
     next()
   }
 })
+
+router.beforeEach((to, from, next) => {
+  const userRole = localStorage.getItem('userRole');
+  
+  if (to.meta.requiresAdmin && userRole !== 'admin') {
+    next('/');
+  } else {
+    next();
+  }
+});
 
 export default router

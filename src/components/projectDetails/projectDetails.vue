@@ -3,7 +3,7 @@ import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { 
+import {
   doc, getDoc, updateDoc, arrayUnion, arrayRemove,
   collection, addDoc, query, where, getDocs, orderBy, onSnapshot,
   setDoc, increment, serverTimestamp
@@ -32,12 +32,12 @@ const loadProjectData = async () => {
   try {
     const projectId = route.params.id as string
     const projectDoc = await getDoc(doc(db, 'projects', projectId))
-    
+
     if (projectDoc.exists()) {
       project.value = { id: projectDoc.id, ...projectDoc.data() }
       await loadUserInteractions()
       await loadComments()
-      
+
       // Увеличиваем счетчик просмотров
       await updateDoc(doc(db, 'projects', projectId), {
         views: increment(1)
@@ -58,15 +58,15 @@ const loadUserInteractions = async () => {
   if (!currentUser.value) return
 
   try {
-    const userInteractionsRef = doc(db, 'userInteractions', currentUser.value.uid)
+    const userInteractionsRef = doc(db, 'users', currentUser.value.uid)
     const userInteractionsDoc = await getDoc(userInteractionsRef)
-    
+
     if (userInteractionsDoc.exists()) {
       const data = userInteractionsDoc.data()
       userRating.value = data.ratings?.[project.value.id] || 0
       userLike.value = data.likes?.includes(project.value.id) || false
       userInCart.value = data.cart?.includes(project.value.id) || false
-      
+
       // Загружаем лайки комментариев
       if (data.commentLikes) {
         userCommentLikes.value = new Set(data.commentLikes)
@@ -80,32 +80,51 @@ const loadUserInteractions = async () => {
 // Загрузка комментариев
 const loadComments = async () => {
   try {
+    // Временное решение - загружаем все комментарии и фильтруем на клиенте
     const commentsQuery = query(
       collection(db, 'comments'),
-      where('projectId', '==', project.value.id),
       orderBy('createdAt', 'desc')
-    )
-    
-    const querySnapshot = await getDocs(commentsQuery)
-    comments.value = querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }))
+    );
 
-    // Также подписываемся на реальные обновления
-    const unsubscribe = onSnapshot(commentsQuery, (snapshot) => {
-      comments.value = snapshot.docs.map(doc => ({
+    const querySnapshot = await getDocs(commentsQuery);
+
+    // Фильтруем комментарии на стороне клиента
+    comments.value = querySnapshot.docs
+      .map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
-    })
+      .filter(comment => comment.projectId === project.value.id);
 
-    return unsubscribe
+    // Также подписываемся на реальные обновления
+    const unsubscribe = onSnapshot(commentsQuery, (snapshot) => {
+      comments.value = snapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .filter(comment => comment.projectId === project.value.id);
+    });
+
+    return unsubscribe;
   } catch (err) {
-    console.error('Ошибка загрузки комментариев:', err)
-    comments.value = []
+    console.error('Ошибка загрузки комментариев:', err);
+
+    // Альтернативный вариант - попробовать загрузить без фильтрации
+    try {
+      const allComments = await getDocs(collection(db, 'comments'));
+      comments.value = allComments.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }))
+        .filter(comment => comment.projectId === project.value.id);
+    } catch (fallbackErr) {
+      console.error('Ошибка при альтернативной загрузке:', fallbackErr);
+      comments.value = [];
+    }
   }
-}
+};
 
 // Создание или обновление документа пользовательских взаимодействий
 const updateUserInteractions = async (updates: any) => {
@@ -244,18 +263,39 @@ const addComment = async () => {
   try {
     // Получаем данные пользователя из коллекции users
     let userName = 'Аноним'
+    
     try {
       const userDoc = await getDoc(doc(db, 'users', currentUser.value.uid))
+      console.log('Данные пользователя из Firestore:', userDoc.exists() ? userDoc.data() : 'Документ не существует')
+      
       if (userDoc.exists()) {
         const userData = userDoc.data()
-        userName = [userData.surname, userData.name, userData.lname]
-          .filter(Boolean)
-          .join(' ') || currentUser.value.displayName || 'Аноним'
+        console.log('Все поля пользователя:', Object.keys(userData))
+        
+        // Проверяем различные возможные варианты полей
+        if (userData.fullName) {
+          userName = userData.fullName
+        } else if (userData.displayName) {
+          userName = userData.displayName
+        } else if (userData.name && userData.surname) {
+          userName = `${userData.surname} ${userData.name}${userData.lname ? ' ' + userData.lname : ''}`
+        } else if (userData.name) {
+          userName = userData.name
+        } else if (userData.email) {
+          userName = userData.email.split('@')[0] // Используем часть email до @
+        }
+        
+        console.log('Выбранное имя пользователя:', userName)
       }
     } catch (userErr) {
       console.error('Ошибка получения данных пользователя:', userErr)
-      userName = currentUser.value.displayName || 'Аноним'
+      // Используем displayName из auth или часть email
+      userName = currentUser.value.displayName || 
+                currentUser.value.email?.split('@')[0] || 
+                'Аноним'
     }
+
+    console.log('Имя для комментария:', userName)
 
     await addDoc(collection(db, 'comments'), {
       projectId: project.value.id,
@@ -343,7 +383,7 @@ const starRating = computed(() => {
 // Форматирование даты комментария
 const formatCommentDate = (date: any) => {
   if (!date) return 'Дата не указана'
-  
+
   try {
     // Если date - это объект timestamp Firebase
     if (date && typeof date === 'object' && date.seconds) {
@@ -355,7 +395,7 @@ const formatCommentDate = (date: any) => {
         minute: '2-digit'
       })
     }
-    
+
     // Если date - это строка
     if (typeof date === 'string') {
       return new Date(date).toLocaleDateString('ru-RU', {
@@ -366,7 +406,7 @@ const formatCommentDate = (date: any) => {
         minute: '2-digit'
       })
     }
-    
+
     return 'Дата не указана'
   } catch {
     return 'Дата не указана'
@@ -388,122 +428,180 @@ onMounted(() => {
 </script>
 
 <template>
-  <Header/>
+  <Header />
   <div class="project-details">
     <!-- Кнопка назад -->
     <div class="back-button-container">
       <button @click="goBack" class="back-button">
-        ← Назад к проектам
+        <span class="back-icon">←</span>
+        Назад к проектам
       </button>
     </div>
 
-    <div v-if="isLoading" class="loading">Загрузка...</div>
-    
-    <div v-else-if="error" class="error">
-      {{ error }}
+    <div v-if="isLoading" class="loading-container">
+      <div class="loading-spinner"></div>
+      <p>Загрузка проекта...</p>
     </div>
-    
+
+    <div v-else-if="error" class="error-container">
+      <div class="error-icon">⚠️</div>
+      <h3>{{ error }}</h3>
+      <button @click="loadProjectData" class="retry-button">Попробовать снова</button>
+    </div>
+
     <div v-else-if="project" class="project-content">
       <!-- Заголовок и мета-информация -->
       <div class="project-header">
-        <h1>{{ project.title }}</h1>
-        <div class="project-actions">
-          <button @click="toggleLike" :class="['like-btn', { liked: userLike }]">
-            ❤️ {{ project.likes || 0 }}
-          </button>
-          <button @click="toggleCart" :class="['cart-btn', { 'in-cart': userInCart }]">
-            {{ userInCart ? '🗑️ Из корзины' : '🛒 В корзину' }}
-          </button>
-        </div>
-      </div>
-
-      <div class="project-meta">
-        <span class="author">Автор: {{ project.authorName }}</span>
-        <span class="type">Тип: {{ project.type }}</span>
-        <span class="date">Дата: {{ new Date(project.date).toLocaleDateString() }}</span>
-      </div>
-
-      <!-- Рейтинг -->
-      <div class="rating-section">
-        <h3>Оценка проекта</h3>
-        <div class="rating-display">
-          <span class="average-rating">{{ averageRating }}</span>
-          <div class="stars">
-            <span v-for="star in 5" :key="star" class="star">
-              {{ star <= starRating ? '⭐' : '☆' }}
+        <div class="title-section">
+          <h1>{{ project.title }}</h1>
+          <div class="project-meta">
+            <span class="meta-item">
+              <span class="meta-icon">👤</span>
+              {{ project.authorName }}
+            </span>
+            <span class="meta-item">
+              <span class="meta-icon">📁</span>
+              {{ project.type }}
+            </span>
+            <span class="meta-item">
+              <span class="meta-icon">📅</span>
+              {{ new Date(project.date).toLocaleDateString() }}
             </span>
           </div>
-          <span class="rating-count">({{ project.ratingCount || 0 }} оценок)</span>
         </div>
-        
-        <div v-if="isAuthenticated" class="rating-input">
-          <span>Ваша оценка:</span>
-          <div class="star-rating">
-            <button
-              v-for="rating in 5"
-              :key="rating"
-              @click="rateProject(rating)"
-              :class="['star-btn', { active: rating <= userRating, disabled: userRating > 0 }]"
-              :disabled="userRating > 0"
-            >
-              {{ rating <= userRating ? '⭐' : '☆' }}
-            </button>
-          </div>
-          <div v-if="userRating > 0" class="rating-info">
-            <small>Вы уже оценили этот проект</small>
-          </div>
-        </div>
-        <div v-else class="auth-prompt">
-          <router-link to="/auth">Войдите</router-link> чтобы оценить проект
+        <div class="project-actions">
+          <button @click="toggleLike" :class="['action-btn', 'like-btn', { liked: userLike }]">
+            <span class="btn-icon">{{ userLike ? '❤️' : '🤍' }}</span>
+            <span class="btn-text">{{ project.likes || 0 }}</span>
+          </button>
+          <button @click="toggleCart" :class="['action-btn', 'cart-btn', { 'in-cart': userInCart }]">
+            <span class="btn-icon">{{ userInCart ? '🗑️' : '🛒' }}</span>
+            <span class="btn-text">{{ userInCart ? 'В корзине' : 'В корзину' }}</span>
+          </button>
         </div>
       </div>
 
-      <!-- Описание -->
-      <div class="project-description">
-        <h3>Описание</h3>
-        <p>{{ project.description }}</p>
-      </div>
+      <!-- Основной контент -->
+      <div class="project-main">
+        <!-- Левая колонка -->
+        <div class="project-left">
+          <!-- Изображения -->
+          <div v-if="project.images && project.images.length" class="project-images">
+            <div class="main-image">
+              <img :src="project.images[0]" :alt="project.title">
+            </div>
+            <div v-if="project.images.length > 1" class="image-thumbnails">
+              <div v-for="(image, index) in project.images.slice(0, 4)" :key="index" class="thumbnail"
+                :class="{ active: index === 0 }">
+                <img :src="image" :alt="`${project.title} - изображение ${index + 1}`">
+              </div>
+              <div v-if="project.images.length > 4" class="thumbnail more-count">
+                +{{ project.images.length - 4 }}
+              </div>
+            </div>
+          </div>
 
-      <!-- Изображения -->
-      <div v-if="project.images && project.images.length" class="project-images">
-        <h3>Галерея проекта</h3>
-        <div class="images-grid">
-          <div v-for="(image, index) in project.images" :key="index" class="image-item">
-            <img :src="image" :alt="`${project.title} - изображение ${index + 1}`">
+          <!-- Описание -->
+          <div class="project-description">
+            <h3>Описание проекта</h3>
+            <p>{{ project.description }}</p>
           </div>
         </div>
-      </div>
 
-      <!-- Статистика -->
-      <div class="project-stats">
-        <span class="views">👁️ {{ project.views || 0 }} просмотров</span>
-        <span class="likes">❤️ {{ project.likes || 0 }} лайков</span>
-        <span class="rating">⭐ {{ averageRating }} средняя оценка</span>
+        <!-- Правая колонка -->
+        <div class="project-right">
+          <!-- Рейтинг -->
+          <div class="rating-card">
+            <h3>Оценка проекта</h3>
+            <div class="rating-display">
+              <div class="rating-score">
+                <span class="score">{{ averageRating }}</span>
+                <span class="max-score">/5</span>
+              </div>
+              <div class="stars">
+                <span v-for="star in 5" :key="star" class="star">
+                  {{ star <= starRating ? '⭐' : '☆' }} </span>
+              </div>
+              <span class="rating-count">На основе {{ project.ratingCount || 0 }} оценок</span>
+            </div>
+
+            <div v-if="isAuthenticated" class="rating-input">
+              <p class="input-label">Ваша оценка:</p>
+              <div class="star-rating">
+                <button v-for="rating in 5" :key="rating" @click="rateProject(rating)"
+                  :class="['star-btn', { active: rating <= userRating, disabled: userRating > 0 }]"
+                  :disabled="userRating > 0">
+                  {{ rating <= userRating ? '⭐' : '☆' }} </button>
+              </div>
+              <div v-if="userRating > 0" class="rating-info">
+                <span class="success-icon">✅</span>
+                <small>Спасибо за вашу оценку!</small>
+              </div>
+            </div>
+            <div v-else class="auth-prompt">
+              <p><router-link to="/auth">Войдите</router-link> чтобы оценить проект</p>
+            </div>
+          </div>
+
+          <!-- Статистика -->
+          <div class="stats-card">
+            <h3>Статистика</h3>
+            <div class="stats-grid">
+              <div class="stat">
+                <div class="stat-icon">👁️</div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ project.views || 0 }}</div>
+                  <div class="stat-label">просмотров</div>
+                </div>
+              </div>
+              <div class="stat">
+                <div class="stat-icon">❤️</div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ project.likes || 0 }}</div>
+                  <div class="stat-label">лайков</div>
+                </div>
+              </div>
+              <div class="stat">
+                <div class="stat-icon">💬</div>
+                <div class="stat-info">
+                  <div class="stat-value">{{ comments.length }}</div>
+                  <div class="stat-label">комментариев</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Комментарии -->
       <div class="comments-section">
-        <h3>Комментарии ({{ comments.length }})</h3>
-        
-        <!-- Форма добавления комментария -->
-        <div v-if="isAuthenticated" class="comment-form">
-          <textarea
-            v-model="newComment"
-            placeholder="Оставьте ваш отзыв..."
-            rows="3"
-            class="comment-input"
-          ></textarea>
-          <button @click="addComment" :disabled="!newComment.trim()" class="comment-submit">
-            Отправить
+        <div class="comments-header">
+          <h3>Комментарии <span class="comments-count">({{ comments.length }})</span></h3>
+          <button v-if="isAuthenticated && !newComment" @click="newComment = ' '" class="add-comment-btn">
+            💬 Добавить комментарий
           </button>
         </div>
-        <div v-else class="auth-prompt">
-          <router-link to="/auth">Войдите</router-link> чтобы оставить комментарий
+
+        <!-- Форма добавления комментария -->
+        <div v-if="isAuthenticated && newComment !== ''" class="comment-form-card">
+          <h4>Ваш комментарий</h4>
+          <textarea v-model="newComment" placeholder="Поделитесь вашим мнением о проекте..." rows="4"
+            class="comment-input" ref="commentInput"></textarea>
+          <div class="comment-actions">
+            <button @click="newComment = ''" class="cancel-btn">Отмена</button>
+            <button @click="addComment" :disabled="!newComment.trim()"
+              :class="['submit-btn', { disabled: !newComment.trim() }]">
+              Опубликовать
+            </button>
+          </div>
+        </div>
+        <div v-else-if="!isAuthenticated" class="auth-prompt-card">
+          <p><router-link to="/auth">Войдите</router-link> чтобы оставить комментарий</p>
         </div>
 
         <!-- Список комментариев -->
         <div v-if="comments.length" class="comments-list">
-          <div v-for="comment in comments" :key="comment.id" class="comment-item">
+          <div v-for="comment in comments" :key="comment.id" class="comment-card">
             <div class="comment-header">
               <img src="../../../public/logo.png" class="comment-avatar">
               <div class="comment-user">
@@ -512,146 +610,25 @@ onMounted(() => {
                   {{ formatCommentDate(comment.createdAt) }}
                 </span>
               </div>
-            </div>
-            <p class="comment-text">{{ comment.text }}</p>
-            <div class="comment-actions">
-              <button 
-                @click="toggleCommentLike(comment)" 
-                :class="['comment-like', { liked: isCommentLiked(comment.id) }]"
-              >
-                ❤️ {{ comment.likes || 0 }}
+              <button @click="toggleCommentLike(comment)"
+                :class="['comment-like', { liked: isCommentLiked(comment.id) }]">
+                <span class="like-icon">{{ isCommentLiked(comment.id) ? '❤️' : '🤍' }}</span>
+                <span class="like-count">{{ comment.likes || 0 }}</span>
               </button>
             </div>
+            <p class="comment-text">{{ comment.text }}</p>
           </div>
         </div>
         <div v-else class="no-comments">
-          <p>Пока нет комментариев. Будьте первым!</p>
+          <div class="no-comments-icon">💬</div>
+          <h4>Пока нет комментариев</h4>
+          <p>Будьте первым, кто оставит отзыв об этом проекте!</p>
         </div>
       </div>
     </div>
   </div>
-  <Footer/>
+  <Footer />
 </template>
-<style scoped lang="scss">
+<style scoped>
 @import "./projectDetails.scss";
-
-.back-button-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1rem 2rem;
-}
-
-.back-button {
-  padding: 0.5rem 1rem;
-  background: #667eea;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: background-color 0.3s ease;
-}
-
-.back-button:hover {
-  background: #5a6fd8;
-}
-
-/* Добавляем стили для disabled кнопок */
-.star-btn.disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.star-btn.disabled:hover {
-  transform: none;
-}
-
-.rating-info {
-  margin-top: 0.5rem;
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.comment-like.liked {
-  color: #ff4757;
-}
-
-.comment-like.liked:hover {
-  color: #ff3742;
-}
-
-/* Улучшаем отображение комментариев */
-.comments-list {
-  margin-top: 1rem;
-}
-
-.comment-item {
-  border: 1px solid #e1e5e9;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  background: #fafafa;
-}
-
-.comment-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.comment-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.comment-user {
-  display: flex;
-  flex-direction: column;
-}
-
-.comment-user strong {
-  font-size: 0.9rem;
-}
-
-.comment-date {
-  font-size: 0.8rem;
-  color: #666;
-}
-
-.comment-text {
-  margin: 0;
-  line-height: 1.4;
-}
-
-.comment-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 0.5rem;
-}
-/* Добавляем стили для disabled кнопок */
-.star-btn.disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.star-btn.disabled:hover {
-  transform: none;
-}
-
-.rating-info {
-  margin-top: 0.5rem;
-  color: #666;
-  font-size: 0.9rem;
-}
-
-.comment-like.liked {
-  color: #ff4757;
-}
-
-.comment-like.liked:hover {
-  color: #ff3742;
-}
 </style>

@@ -75,7 +75,9 @@ const handleLogin = async () => {
     localStorage.setItem('userRole', userRole);
     
     // Перенаправление в зависимости от роли
-    if (userRole === 'student') {
+    if (userRole === 'admin') {
+      router.push('/admin-panel'); // Панель администратора
+    } else if (userRole === 'student') {
       router.push('/profile');
     } else if (userRole === 'teacher') {
       router.push('/teacherProfile');
@@ -136,7 +138,10 @@ onMounted(() => {
       storage.setItem('userRole', userRole);
       localStorage.setItem('userRole', userRole);
       
-      if (userRole === 'student') {
+      // Перенаправление в зависимости от роли
+      if (userRole === 'admin') {
+        router.push('/admin-panel'); 
+      } else if (userRole === 'student') {
         router.push('/profile');
       } else if (userRole === 'teacher') {
         router.push('/teacherProfile');
