@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Teacher from '@/components/teacher/Teacher.vue'
+import Teacher from '@/components/teacher/teacher.vue'
 </script>
 
 <template>

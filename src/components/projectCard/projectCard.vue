@@ -1,22 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps({
-  project: {
-    type: Object,
-    required: true
-  }
-})
+// const props = defineProps({
+//   project: {
+//     type: Object,
+//     required: true
+//   }
+// })
 
-const averageRating = computed(() => {
-  if (!props.project.reviews || props.project.reviews.length === 0) return 0
-  const sum = props.project.reviews.reduce((acc: number, review: any) => acc + review.rating, 0)
-  return (sum / props.project.reviews.length).toFixed(1)
-})
+// const averageRating = computed(() => {
+//   if (!props.project.reviews || props.project.reviews.length === 0) return 0
+//   const sum = props.project.reviews.reduce((acc: number, review: any) => acc + review.rating, 0)
+//   return (sum / props.project.reviews.length).toFixed(1)
+// })
 </script>
 
 <template>
-  <div class="project-card">
+  <!-- <div class="project-card">
     <div class="project-image">
       <img v-if="project.images && project.images.length" :src="project.images[0]" :alt="project.title">
       <div v-else class="image-placeholder">Изображение отсутствует</div>
@@ -37,7 +37,7 @@ const averageRating = computed(() => {
         <span class="no-reviews">Нет отзывов</span>
       </div>
     </div>
-  </div>
+  </div> -->
 </template>
 <style scoped lang="scss">
 @import "./projectCard.scss";

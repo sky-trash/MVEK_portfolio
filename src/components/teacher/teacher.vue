@@ -3,7 +3,7 @@ import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
 import { ref, computed, onMounted } from 'vue';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '@/firebase';
+import { db } from '@/firebase.ts';
 
 interface Teacher {
   id: string;

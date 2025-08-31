@@ -15,6 +15,7 @@ const route = useRoute();
 const router = useRouter();
 const userId = ref(route.params.id || '');
 
+
 // Данные профиля
 const profileData = ref({
   id: '',
@@ -121,7 +122,9 @@ const loadProfileData = async () => {
       return;
     }
 
-    const userData = await findUserDocument(identifier);
+    // Убеждаемся, что identifier - строка. Если это массив, берем первый элемент.
+    const identifierValue = Array.isArray(identifier) ? identifier[0] : identifier;
+    const userData = await findUserDocument(identifierValue);
 
     if (userData) {
       const data = userData.doc.data();
@@ -657,13 +660,13 @@ const editProfile = () => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  
+
   &:hover {
     background: rgba(255, 255, 255, 0.3);
     transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   }
-  
+
   i {
     font-size: 0.9rem;
   }
@@ -675,7 +678,7 @@ const editProfile = () => {
     align-items: flex-start;
     gap: 1rem;
   }
-  
+
   .edit-profile-button {
     order: 2;
   }

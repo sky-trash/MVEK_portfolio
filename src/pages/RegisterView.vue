@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Register from '@/components/register/Register.vue'
+import Register from '@/components/register/register.vue'
 </script>
 
 <template>

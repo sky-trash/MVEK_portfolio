@@ -1,4 +1,14 @@
 <script setup lang="ts">
+
+interface Comment {
+  id: string;
+  projectId: string; 
+  author: string;
+  authorId: string;
+  text: string;
+  createdAt: any;
+}
+
 import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
 import { ref, onMounted, computed } from 'vue'
@@ -24,7 +34,7 @@ const userRating = ref(0)
 const userLike = ref(false)
 const userInCart = ref(false)
 const newComment = ref('')
-const comments = ref<any[]>([])
+const comments = ref<Comment[]>([]);
 const userCommentLikes = ref<Set<string>>(new Set())
 
 // Загрузка данных проекта
@@ -377,7 +387,7 @@ const averageRating = computed(() => {
 })
 
 const starRating = computed(() => {
-  return Math.round(parseFloat(averageRating.value))
+  return Math.round(parseFloat(String(averageRating.value)))
 })
 
 // Форматирование даты комментария
