@@ -21,7 +21,7 @@ import {
   collection, addDoc, query, where, getDocs, orderBy, onSnapshot,
   setDoc, increment, serverTimestamp
 } from 'firebase/firestore'
-import { db, auth } from '@/firebase.ts'
+import { db, auth } from '@/firebase'
 import { onAuthStateChanged } from 'firebase/auth'
 
 const route = useRoute()
@@ -139,6 +139,8 @@ const loadComments = async () => {
     return unsubscribe;
   } catch (err) {
     console.error('Ошибка загрузки комментариев:', err);
+
+    const q = query(collection(db, "comments"), where("projectId", "==", project.value.id));
 
     // Альтернативный вариант - попробовать загрузить без фильтрации
     try {

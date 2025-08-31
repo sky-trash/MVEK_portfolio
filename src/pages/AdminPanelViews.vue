@@ -530,6 +530,7 @@ export default {
 </template>
 
 <style scoped lang="scss">
+@use "sass:color";
 $primary-color: #3498db;
 $secondary-color: #2c3e50;
 $accent-color: #e74c3c;
@@ -594,7 +595,7 @@ $transition: all 0.3s ease;
   transition: $transition;
 
   &:hover {
-    background-color: darken($bg-color, 10%);
+    background-color: color.adjust($bg-color, $lightness: -10%);
   }
 }
 
