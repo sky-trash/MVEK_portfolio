@@ -4,8 +4,12 @@ import Footer from '../layouts/footer/footer.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProjectCard from '@/components/projectCard/projectCard.vue'
-import { doc, getDoc, collection, getDocs, orderBy, where, query } from 'firebase/firestore'
+import {
+  doc, getDoc, collection, getDocs, orderBy, where, query,
+  updateDoc, arrayUnion, arrayRemove
+} from 'firebase/firestore'
 import { db, auth } from '@/firebase'
+import { onAuthStateChanged } from 'firebase/auth'
 
 interface Group {
   id: string
@@ -55,7 +59,12 @@ const teacher = ref<Teacher | null>(null)
 const loading = ref(true)
 const isOwnProfile = ref(false)
 const currentUserId = ref<string | null>(null)
-const isBaseProfile = ref(false) // Флаг для базового профиля
+const isBaseProfile = ref(false)
+const isEditing = ref(false)
+const editedBio = ref('')
+const isBioExpanded = ref(false)
+const isUploadingAvatar = ref(false)
+const errorMessage = ref('')
 
 const formattedRating = computed(() => {
   const rating = teacher.value?.rating || 0;
@@ -83,7 +92,7 @@ const fetchProjectsForTeacher = async (teacherId: string) => {
       id: doc.id,
       ...doc.data()
     })) as Project[];
-    
+
     // Фильтруем проекты по teacherId на клиенте
     return allProjects.filter(project => project.teacherId === teacherId)
       .sort((a, b) => {
@@ -106,7 +115,7 @@ const fetchGroupsForTeacher = async (teacherId: string) => {
       id: doc.id,
       ...doc.data()
     })) as Group[];
-    
+
     // Фильтруем группы по teacherId на клиенте
     return allGroups.filter(group => group.teacherId === teacherId);
   } catch (error) {
@@ -120,11 +129,11 @@ const fetchTeacherByUserId = async (userId: string) => {
   try {
     const usersQuery = query(collection(db, 'users'), where('userId', '==', userId));
     const querySnapshot = await getDocs(usersQuery);
-    
+
     if (!querySnapshot.empty) {
       const userDoc = querySnapshot.docs[0];
       const userData = userDoc.data();
-      
+
       if (userData.role !== 'teacher') {
         throw new Error('Пользователь не является преподавателем');
       }
@@ -139,7 +148,7 @@ const fetchTeacherByUserId = async (userId: string) => {
         userId: userData.userId,
         name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
         position: userData.position || 'Преподаватель',
-        avatar: userData.avatarUrl || '',
+        avatar: userData.avatarUrl || userData.avatarBase64 || '../../../public/logo.png',
         isVerified: userData.isVerified || false,
         rating: userData.rating || 0,
         bio: userData.bio || '',
@@ -153,7 +162,7 @@ const fetchTeacherByUserId = async (userId: string) => {
         subjects: userData.subjects || []
       } as Teacher;
     }
-    
+
     throw new Error('Преподаватель не найден');
   } catch (error) {
     console.error('Ошибка загрузки данных преподавателя:', error);
@@ -168,7 +177,7 @@ const fetchTeacherData = async (teacherId: string) => {
     const userDoc = await getDoc(doc(db, 'users', teacherId));
     if (userDoc.exists()) {
       const userData = userDoc.data();
-      
+
       // Проверяем, является ли пользователь преподавателем
       if (userData.role !== 'teacher') {
         throw new Error('Пользователь не является преподавателем');
@@ -185,7 +194,7 @@ const fetchTeacherData = async (teacherId: string) => {
         userId: userData.userId,
         name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
         position: userData.position || 'Преподаватель',
-        avatar: userData.avatarUrl || '',
+        avatar: userData.avatarUrl || userData.avatarBase64 || '../../../public/logo.png',
         isVerified: userData.isVerified || false,
         rating: userData.rating || 0,
         bio: userData.bio || '',
@@ -204,7 +213,7 @@ const fetchTeacherData = async (teacherId: string) => {
     const teacherDoc = await getDoc(doc(db, 'teachers', teacherId));
     if (teacherDoc.exists()) {
       const teacherData = teacherDoc.data();
-      
+
       // Для старой структуры также загружаем группы и проекты
       const [groups, projects] = await Promise.all([
         fetchGroupsForTeacher(teacherId),
@@ -226,6 +235,98 @@ const fetchTeacherData = async (teacherId: string) => {
   }
 };
 
+// ЗАГРУЗКА АВАТАРА
+const handleAvatarUpload = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || !target.files[0]) return;
+
+  const file = target.files[0];
+
+  // Валидация файла
+  if (!file.type.match('image.*')) {
+    errorMessage.value = 'Пожалуйста, выберите изображение (JPEG, PNG, GIF, JPG)';
+    return;
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    errorMessage.value = 'Размер файла не должен превышать 2MB';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      isUploadingAvatar.value = true;
+      errorMessage.value = '';
+
+      // Сохраняем изображение как base64
+      const imageData = e.target?.result as string;
+
+      // Обновляем данные пользователя в Firestore
+      const userRef = doc(db, 'users', teacher.value!.id);
+      await updateDoc(userRef, {
+        avatarBase64: imageData,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Просто перезагружаем страницу
+      window.location.reload();
+
+    } catch (error) {
+      console.error('Ошибка загрузки аватара:', error);
+      errorMessage.value = 'Ошибка при загрузке аватара';
+    } finally {
+      isUploadingAvatar.value = false;
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+// УДАЛЕНИЕ АВАТАРА
+const removeAvatar = async () => {
+  if (!confirm('Удалить аватар?')) return;
+
+  try {
+    // Обновляем данные пользователя
+    const userRef = doc(db, 'users', teacher.value!.id);
+    await updateDoc(userRef, {
+      avatarBase64: null,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Просто перезагружаем страницу
+    window.location.reload();
+
+  } catch (error) {
+    console.error('Ошибка удаления аватара:', error);
+    errorMessage.value = 'Ошибка при удалении аватара';
+  }
+};
+
+// Редактирование профиля
+const startEditing = () => {
+  editedBio.value = teacher.value?.bio || '';
+  isEditing.value = true;
+  isBioExpanded.value = true;
+};
+
+const saveProfile = async () => {
+  try {
+    const userRef = doc(db, 'users', teacher.value!.id);
+    await updateDoc(userRef, {
+      bio: editedBio.value,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Просто перезагружаем страницу
+    window.location.reload();
+
+  } catch (error) {
+    console.error('Ошибка сохранения профиля:', error);
+    errorMessage.value = 'Ошибка при сохранении данных';
+  }
+};
+
 onMounted(async () => {
   try {
     loading.value = true;
@@ -237,7 +338,7 @@ onMounted(async () => {
       // Если ID не передан, загружаем собственный профиль
       isBaseProfile.value = true;
       const user = auth.currentUser;
-      
+
       if (!user) {
         throw new Error('Пользователь не авторизован');
       }
@@ -287,6 +388,20 @@ const editProfile = () => {
         <div class="avatar-container">
           <img :src="teacher.avatar || '../../../public/logo.png'" class="avatar">
           <div class="verified-badge" v-if="teacher.isVerified">✓</div>
+          <div v-if="isOwnProfile" class="avatar-upload">
+            <label for="avatar-upload" class="avatar-upload-label">
+              <i class="fas fa-camera">+</i>
+              <input id="avatar-upload" type="file" accept="image/jpeg,image/png,image/gif" @change="handleAvatarUpload"
+                :disabled="isUploadingAvatar" class="avatar-upload-input">
+            </label>
+            <div v-if="isUploadingAvatar" class="avatar-upload-loading">
+              <i class="fas fa-spinner fa-spin"></i>
+            </div>
+            <button v-if="teacher.avatar !== '../../../public/logo.png' && isOwnProfile" @click="removeAvatar"
+              class="avatar-upload-label" title="Удалить аватар">
+              <i class="fas fa-camera">-</i>
+            </button>
+          </div>
         </div>
 
         <div class="profile-info">
@@ -311,7 +426,29 @@ const editProfile = () => {
       <div class="profile-content">
         <section class="about-section">
           <h2>О преподавателе</h2>
-          <p class="bio">{{ teacher.bio || 'Информация о преподавателе пока не добавлена.' }}</p>
+
+          <div v-if="!isEditing" class="profile-bio">
+            <p :class="{ 'bio-collapsed': !isBioExpanded && teacher.bio && teacher.bio.length > 150 }">
+              {{ isBioExpanded ? teacher.bio : (teacher.bio ? teacher.bio.slice(0, 150) + (teacher.bio.length > 150 ?
+                '...' : '') : 'Информация о преподавателе пока не добавлена.') }}
+            </p>
+            <div v-if="teacher.bio && teacher.bio.length > 150" class="bio-toggle">
+              <button @click="isBioExpanded = !isBioExpanded" class="read-more-button">
+                {{ isBioExpanded ? 'Свернуть' : 'Читать далее' }}
+              </button>
+            </div>
+            <button v-if="isOwnProfile" @click="startEditing" class="edit-button">
+              <i class="fas fa-edit"></i> Редактировать
+            </button>
+          </div>
+
+          <div v-else class="profile-bio-edit">
+            <textarea v-model="editedBio" class="bio-textarea" placeholder="Расскажите о себе..."></textarea>
+            <div class="edit-actions">
+              <button @click="saveProfile" class="save-button">Сохранить</button>
+              <button @click="isEditing = false" class="cancel-button">Отмена</button>
+            </div>
+          </div>
 
           <div class="details-grid">
             <div class="detail-item">
@@ -349,7 +486,8 @@ const editProfile = () => {
               <a v-if="teacher.socialLinks.vk" :href="teacher.socialLinks.vk" target="_blank" class="social-link">
                 <i class="fab fa-vk"></i>
               </a>
-              <a v-if="teacher.socialLinks.telegram" :href="teacher.socialLinks.telegram" target="_blank" class="social-link">
+              <a v-if="teacher.socialLinks.telegram" :href="teacher.socialLinks.telegram" target="_blank"
+                class="social-link">
                 <i class="fab fa-telegram"></i>
               </a>
             </div>
@@ -396,114 +534,4 @@ const editProfile = () => {
 </template>
 <style scoped>
 @import "./teacherProfile.scss";
-
-/* Стили для групп */
-.groups-section {
-  margin-bottom: 3rem;
-}
-
-.groups-section h2 {
-  color: #2d3748;
-  font-size: 1.8rem;
-  font-weight: 700;
-  margin-bottom: 1.5rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 3px solid #e2e8f0;
-  position: relative;
-}
-
-.groups-section h2::after {
-  content: '';
-  position: absolute;
-  bottom: -3px;
-  left: 0;
-  width: 60px;
-  height: 3px;
-  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
-  border-radius: 3px;
-}
-
-.groups-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-}
-
-.group-card {
-  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-  border: 1px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 1.5rem;
-  text-decoration: none;
-  color: #2d3748;
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.group-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
-  border-radius: 4px 4px 0 0;
-}
-
-.group-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
-}
-
-.group-card:hover .group-name {
-  color: #4a6cf7;
-}
-
-.group-name {
-  font-size: 1.2rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-  transition: color 0.3s ease;
-  display: block;
-}
-
-.student-count {
-  font-size: 0.9rem;
-  color: #718096;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.student-count::before {
-  content: '👥';
-  font-size: 1rem;
-}
-
-/* Адаптивность для групп */
-@media (max-width: 768px) {
-  .groups-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .group-card {
-    padding: 1.25rem;
-  }
-
-  .group-name {
-    font-size: 1.1rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .groups-section h2 {
-    font-size: 1.5rem;
-  }
-
-  .group-card {
-    padding: 1rem;
-  }
-}
 </style>

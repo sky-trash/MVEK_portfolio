@@ -3,12 +3,12 @@ import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { 
-  doc, 
-  updateDoc, 
-  collection, 
-  query, 
-  where, 
+import {
+  doc,
+  updateDoc,
+  collection,
+  query,
+  where,
   getDocs,
   addDoc
 } from 'firebase/firestore'
@@ -84,7 +84,7 @@ const loadFirestoreData = async () => {
 // Создание кафедр на основе специализаций
 const createDepartmentsFromSpecialties = (specialtiesList: string[]): string[] => {
   const departmentMap: Record<string, boolean> = {}
-  
+
   // Базовые кафедры для дизайнерских специальностей
   const baseDepartments = [
     'Кафедра графического дизайна',
@@ -119,7 +119,7 @@ const loadProfileData = async () => {
     // Ищем пользователя в коллекции users
     const usersQuery = query(collection(db, 'users'), where('userId', '==', user.uid))
     const usersSnapshot = await getDocs(usersQuery)
-    
+
     if (usersSnapshot.empty) {
       errorMessage.value = 'Профиль не найден'
       loading.value = false
@@ -170,8 +170,8 @@ const saveProfile = async () => {
     }
 
     // Валидация
-    if (!formData.value.name || !formData.value.surname || !formData.value.login || 
-        !formData.value.position || !formData.value.department || !formData.value.specialization || !formData.value.bio) {
+    if (!formData.value.name || !formData.value.surname || !formData.value.login ||
+      !formData.value.position || !formData.value.department || !formData.value.specialization || !formData.value.bio) {
       saveErrorMessage.value = 'Заполните все обязательные поля'
       return
     }
@@ -185,7 +185,7 @@ const saveProfile = async () => {
     // Ищем пользователя в коллекции users
     const usersQuery = query(collection(db, 'users'), where('userId', '==', user.uid))
     const usersSnapshot = await getDocs(usersQuery)
-    
+
     if (usersSnapshot.empty) {
       saveErrorMessage.value = 'Профиль не найден'
       return
@@ -230,10 +230,8 @@ const saveProfile = async () => {
       }
     }
 
-    saveSuccessMessage.value = 'Профиль успешно сохранен!'
-    setTimeout(() => {
-      router.push('/teacherProfile')
-    }, 1500)
+    // Вместо setTimeout с переходом, просто перезагружаем страницу
+    window.location.href = '/teacherProfile'
 
   } catch (error) {
     console.error('Ошибка сохранения профиля:', error)
@@ -272,13 +270,13 @@ onMounted(() => {
         <form v-else @submit.prevent="saveProfile" class="edit-profile-form">
           <div class="form-section">
             <h2>Основная информация</h2>
-            
+
             <div class="form-row">
               <div class="form-group">
                 <label>Имя *</label>
                 <input v-model="formData.name" type="text" required>
               </div>
-              
+
               <div class="form-group">
                 <label>Фамилия *</label>
                 <input v-model="formData.surname" type="text" required>
@@ -290,7 +288,7 @@ onMounted(() => {
                 <label>Отчество</label>
                 <input v-model="formData.lname" type="text">
               </div>
-              
+
               <div class="form-group">
                 <label>Логин *</label>
                 <input v-model="formData.login" type="text" required>
@@ -305,13 +303,14 @@ onMounted(() => {
 
             <div class="form-group">
               <label>Должность *</label>
-              <input v-model="formData.position" type="text" required placeholder="Преподаватель, Старший преподаватель и т.д.">
+              <input v-model="formData.position" type="text" required
+                placeholder="Преподаватель, Старший преподаватель и т.д.">
             </div>
           </div>
 
           <div class="form-section">
             <h2>Профессиональная информация</h2>
-            
+
             <div class="form-row">
               <div class="form-group">
                 <label>Кафедра *</label>
@@ -322,7 +321,7 @@ onMounted(() => {
                   </option>
                 </select>
               </div>
-              
+
               <div class="form-group">
                 <label>Специализация *</label>
                 <select v-model="formData.specialization" required>
@@ -343,21 +342,12 @@ onMounted(() => {
 
           <div class="form-section">
             <h2>Кураторство групп</h2>
-            
+
             <div class="form-group">
               <label>Выберите группы для кураторства</label>
-              <select 
-                v-model="formData.curatedGroups" 
-                multiple 
-                :disabled="isDataLoading"
-                class="groups-select"
-              >
-                <option 
-                  v-for="group in allGroups" 
-                  :key="group.id" 
-                  :value="group.id"
-                  :disabled="group.teacherId && group.teacherId !== auth.currentUser?.uid"
-                >
+              <select v-model="formData.curatedGroups" multiple :disabled="isDataLoading" class="groups-select">
+                <option v-for="group in allGroups" :key="group.id" :value="group.id"
+                  :disabled="group.teacherId && group.teacherId !== auth.currentUser?.uid">
                   {{ group.name }}
                   <span v-if="group.teacherId && group.teacherId !== auth.currentUser?.uid">
                     (Занято: {{ group.teacherName }})
@@ -366,21 +356,15 @@ onMounted(() => {
               </select>
               <small class="select-note">Для выбора нескольких групп удерживайте Ctrl (Cmd на Mac)</small>
               <div v-if="isDataLoading" class="loading-text">Загрузка групп...</div>
-              
+
               <div v-if="formData.curatedGroups.length > 0" class="selected-groups">
                 <h3>Выбранные группы:</h3>
                 <div class="selected-groups-list">
-                  <span 
-                    v-for="groupId in formData.curatedGroups" 
-                    :key="groupId" 
-                    class="selected-group-tag"
-                  >
-                    {{ allGroups.find(g => g.id === groupId)?.name }}
-                    <button 
-                      type="button" 
+                  <span v-for="groupId in formData.curatedGroups" :key="groupId" class="selected-group-tag">
+                    {{allGroups.find(g => g.id === groupId)?.name}}
+                    <button type="button"
                       @click="formData.curatedGroups = formData.curatedGroups.filter(id => id !== groupId)"
-                      class="remove-group-btn"
-                    >
+                      class="remove-group-btn">
                       ×
                     </button>
                   </span>
@@ -391,26 +375,27 @@ onMounted(() => {
 
           <div class="form-section">
             <h2>О себе</h2>
-            
+
             <div class="form-group">
               <label>Биография *</label>
-              <textarea v-model="formData.bio" rows="4" required placeholder="Расскажите о своем профессиональном опыте, образовании и достижениях..."></textarea>
+              <textarea v-model="formData.bio" rows="4" required
+                placeholder="Расскажите о своем профессиональном опыте, образовании и достижениях..."></textarea>
             </div>
           </div>
 
           <div class="form-section">
             <h2>Социальные сети</h2>
-            
+
             <div class="form-group">
               <label>Behance</label>
               <input v-model="formData.socialLinks.behance" type="url" placeholder="https://behance.net/ваш-профиль">
             </div>
-            
+
             <div class="form-group">
               <label>Dribbble</label>
               <input v-model="formData.socialLinks.dribbble" type="url" placeholder="https://dribbble.com/ваш-профиль">
             </div>
-            
+
             <div class="form-group">
               <label>ВКонтакте</label>
               <input v-model="formData.socialLinks.vk" type="url" placeholder="https://vk.com/ваш-профиль">
@@ -429,10 +414,6 @@ onMounted(() => {
 
           <div v-if="saveErrorMessage" class="error-message">
             {{ saveErrorMessage }}
-          </div>
-          
-          <div v-if="saveSuccessMessage" class="success-message">
-            {{ saveSuccessMessage }}
           </div>
         </form>
       </div>

@@ -1,28 +1,25 @@
+// teacherProfile.scss
+
 .teacher-profile-container {
   margin: 0 auto;
   padding: 2rem;
   min-height: 100vh;
-}
 
-.loading-spinner {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 60vh;
-  
-  .spinner {
-    width: 60px;
-    height: 60px;
-    border: 4px solid rgba(74, 108, 247, 0.1);
-    border-top: 4px solid #4a6cf7;
-    border-radius: 50%;
-    animation: spin 1s ease-in-out infinite;
+  .loading-spinner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 60vh;
+
+    .spinner {
+      width: 60px;
+      height: 60px;
+      border: 4px solid rgba(74, 108, 247, 0.1);
+      border-top: 4px solid #4a6cf7;
+      border-radius: 50%;
+      animation: spin 1s ease-in-out infinite;
+    }
   }
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 
 .teacher-profile {
@@ -41,7 +38,7 @@
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   position: relative;
-  
+
   &::before {
     content: '';
     position: absolute;
@@ -57,21 +54,23 @@
 .avatar-container {
   position: relative;
   z-index: 2;
-  
+  width: 160px;
+  height: 160px;
+
   .avatar {
-    width: 160px;
-    height: 160px;
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
     object-fit: cover;
     border: 4px solid rgba(255, 255, 255, 0.3);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     transition: transform 0.3s ease;
-    
+
     &:hover {
       transform: scale(1.05);
     }
   }
-  
+
   .verified-badge {
     position: absolute;
     bottom: 12px;
@@ -91,10 +90,58 @@
   }
 }
 
+.avatar-upload {
+  position: absolute;
+  bottom: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+
+  .avatar-upload-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: #3182ce;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    border: none;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+
+    &:hover {
+      background: #2c5282;
+      transform: scale(1.05);
+    }
+  }
+
+  .avatar-upload-input {
+    display: none;
+  }
+
+  .avatar-upload-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #3182ce;
+    font-size: 18px;
+  }
+}
+
 .profile-info {
   flex: 1;
   z-index: 2;
-  
+
   .name-and-actions {
     display: flex;
     align-items: center;
@@ -102,14 +149,14 @@
     margin-bottom: 1rem;
     flex-wrap: wrap;
   }
-  
+
   .teacher-name {
     margin: 0;
     font-size: 2.5rem;
     font-weight: 700;
     text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
   }
-  
+
   .teacher-position {
     margin: 0 0 1.5rem 0;
     font-size: 1.2rem;
@@ -128,7 +175,7 @@
   cursor: pointer;
   transition: all 0.3s ease;
   backdrop-filter: blur(10px);
-  
+
   &:hover {
     background: rgba(255, 255, 255, 0.3);
     transform: translateY(-2px);
@@ -140,23 +187,23 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  
+
   .stars {
     display: flex;
     gap: 0.25rem;
-    
+
     .star {
       font-size: 1.4rem;
       color: rgba(255, 255, 255, 0.4);
       transition: color 0.3s ease;
-      
+
       &.filled {
         color: #fbbf24;
         text-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
       }
     }
   }
-  
+
   .rating-value {
     font-size: 1.2rem;
     font-weight: 700;
@@ -166,14 +213,14 @@
 
 .profile-content {
   padding: 3rem;
-  
+
   > section {
     margin-bottom: 3rem;
-    
+
     &:last-child {
       margin-bottom: 0;
     }
-    
+
     h2 {
       color: #2d3748;
       font-size: 1.8rem;
@@ -182,7 +229,7 @@
       padding-bottom: 0.75rem;
       border-bottom: 3px solid #e2e8f0;
       position: relative;
-      
+
       &::after {
         content: '';
         position: absolute;
@@ -198,22 +245,129 @@
 }
 
 .about-section {
-  .bio {
-    font-size: 1.1rem;
-    line-height: 1.7;
-    color: #4a5568;
-    margin-bottom: 2rem;
-    padding: 1.5rem;
-    background: #f8fafc;
-    border-radius: 12px;
-    border-left: 4px solid #4a6cf7;
+  .profile-bio {
+    margin-bottom: 1.5rem;
+
+    p {
+      line-height: 1.4;
+      margin-bottom: 8px;
+      white-space: pre-line;
+    }
+
+    .bio-collapsed {
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+      max-height: 4.2em;
+    }
+
+    .read-more-button {
+      background: none;
+      border: none;
+      color: #3182ce;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 5px 0;
+      margin: 5px 0;
+
+      &:hover {
+        color: #2c5282;
+        text-decoration: underline;
+      }
+    }
+
+    .bio-toggle {
+      margin-top: 8px;
+    }
+
+    .edit-button {
+      background: rgba(74, 108, 247, 0.1);
+      border: 2px solid rgba(74, 108, 247, 0.2);
+      color: #4a6cf7;
+      padding: 0.75rem 1.5rem;
+      border-radius: 25px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+      margin-top: 1rem;
+
+      &:hover {
+        background: rgba(74, 108, 247, 0.2);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+
+      i {
+        margin-right: 0.5rem;
+      }
+    }
   }
-  
+
+  .profile-bio-edit {
+    margin-bottom: 1.5rem;
+
+    .bio-textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 1rem;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      margin-bottom: 1rem;
+      font-family: inherit;
+      resize: vertical;
+      transition: border-color 0.3s ease;
+
+      &:focus {
+        outline: none;
+        border-color: #4a6cf7;
+      }
+    }
+
+    .edit-actions {
+      display: flex;
+      gap: 1rem;
+
+      button {
+        padding: 0.75rem 1.5rem;
+        border-radius: 25px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .save-button {
+        background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
+        color: white;
+        border: none;
+
+        &:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(74, 108, 247, 0.3);
+        }
+      }
+
+      .cancel-button {
+        background: transparent;
+        border: 2px solid #e2e8f0;
+        color: #718096;
+
+        &:hover {
+          background: #f7fafc;
+          transform: translateY(-2px);
+        }
+      }
+    }
+  }
+
   .details-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 1.5rem;
-    
+
     .detail-item {
       display: flex;
       align-items: center;
@@ -224,27 +378,27 @@
       box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
       border: 1px solid #e2e8f0;
       transition: transform 0.3s ease, box-shadow 0.3s ease;
-      
+
       &:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
       }
-      
+
       .detail-label {
         font-weight: 600;
         color: #2d3748;
       }
-      
+
       .detail-value {
         color: #4a5568;
         flex: 1;
-        
+
         &.link {
           color: #4a6cf7;
           text-decoration: none;
           font-weight: 500;
           transition: color 0.3s ease;
-          
+
           &:hover {
             color: #667eea;
             text-decoration: underline;
@@ -260,7 +414,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
     gap: 1.25rem;
-    
+
     .group-card {
       background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
       border: 1px solid #e2e8f0;
@@ -271,7 +425,7 @@
       transition: all 0.3s ease;
       position: relative;
       overflow: hidden;
-      
+
       &::before {
         content: '';
         position: absolute;
@@ -282,30 +436,30 @@
         background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
         border-radius: 4px 4px 0 0;
       }
-      
+
       &:hover {
         transform: translateY(-4px);
         box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
-        
+
         .group-name {
           color: #4a6cf7;
         }
       }
-      
+
       .group-name {
         font-size: 1.2rem;
         font-weight: 600;
         margin-bottom: 0.5rem;
         transition: color 0.3s ease;
       }
-      
+
       .student-count {
         font-size: 0.9rem;
         color: #718096;
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        
+
         &::before {
           content: '👥';
           font-size: 1rem;
@@ -327,13 +481,13 @@
   text-align: center;
   padding: 3rem 2rem;
   color: #718096;
-  
+
   h3 {
     font-size: 1.5rem;
     margin-bottom: 1rem;
     color: #4a5568;
   }
-  
+
   p {
     font-size: 1.1rem;
     line-height: 1.6;
@@ -344,19 +498,19 @@
   text-align: center;
   padding: 4rem 2rem;
   color: #718096;
-  
+
   h3 {
     font-size: 2rem;
     margin-bottom: 1rem;
     color: #2d3748;
   }
-  
+
   p {
     font-size: 1.2rem;
     margin-bottom: 2rem;
     line-height: 1.6;
   }
-  
+
   .back-link {
     display: inline-flex;
     align-items: center;
@@ -368,7 +522,7 @@
     border: 2px solid #4a6cf7;
     border-radius: 25px;
     transition: all 0.3s ease;
-    
+
     &:hover {
       background: #4a6cf7;
       color: white;
@@ -377,24 +531,57 @@
   }
 }
 
+.error-message {
+  color: #e53e3e;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(229, 62, 62, 0.1);
+  border-radius: 4px;
+  border: 1px solid rgba(229, 62, 62, 0.2);
+}
+
+// Анимации
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.fa-spinner {
+  animation: spin 1s linear infinite;
+}
+
 // Адаптивность
 @media (max-width: 968px) {
   .profile-header {
     flex-direction: column;
     text-align: center;
     padding: 2rem;
-    
+
     .avatar-container {
       margin-bottom: 1.5rem;
+      width: 120px;
+      height: 120px;
     }
-    
+
     .name-and-actions {
       justify-content: center;
     }
   }
-  
+
   .teacher-name {
     font-size: 2rem !important;
+  }
+
+  .avatar-upload-label {
+    width: 35px;
+    height: 35px;
+    font-size: 14px;
   }
 }
 
@@ -402,21 +589,30 @@
   .teacher-profile-container {
     padding: 1rem;
   }
-  
+
   .profile-content {
     padding: 2rem 1.5rem;
   }
-  
+
   .details-grid {
     grid-template-columns: 1fr !important;
   }
-  
+
   .groups-grid {
     grid-template-columns: 1fr !important;
   }
-  
+
   .projects-grid {
     grid-template-columns: 1fr !important;
+  }
+
+  .edit-actions {
+    flex-direction: column;
+
+    button {
+      width: 100%;
+      justify-content: center;
+    }
   }
 }
 
@@ -424,17 +620,28 @@
   .profile-header {
     padding: 1.5rem;
   }
-  
+
   .avatar-container .avatar {
-    width: 120px;
-    height: 120px;
+    width: 100px;
+    height: 100px;
   }
-  
+
   .teacher-name {
     font-size: 1.5rem !important;
   }
-  
+
   .profile-content {
     padding: 1.5rem 1rem;
+  }
+
+  .name-and-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .edit-button {
+    width: 100%;
+    justify-content: center;
   }
 }

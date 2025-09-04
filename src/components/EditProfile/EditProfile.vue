@@ -163,10 +163,8 @@ const saveProfile = async () => {
       updatedAt: new Date()
     })
 
-    saveSuccessMessage.value = 'Профиль успешно сохранен!'
-    setTimeout(() => {
-      router.push('/profile')
-    }, 1500)
+    // Вместо setTimeout с переходом, просто перезагружаем страницу
+    window.location.href = '/profile'
 
   } catch (error) {
     console.error('Ошибка сохранения профиля:', error)
@@ -326,10 +324,6 @@ onMounted(() => {
 
           <div v-if="saveErrorMessage" class="error-message">
             {{ saveErrorMessage }}
-          </div>
-          
-          <div v-if="saveSuccessMessage" class="success-message">
-            {{ saveSuccessMessage }}
           </div>
         </form>
       </div>
