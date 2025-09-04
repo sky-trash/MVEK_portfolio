@@ -15,7 +15,7 @@ const route = useRoute();
 const router = useRouter();
 const userId = ref(route.params.id || '');
 
-// Данные профиля
+
 const profileData = ref({
   id: '',
   avatar: '../../../public/logo.png',
@@ -34,11 +34,9 @@ const profileData = ref({
   projectIds: [] as string[]
 });
 
-// Проекты пользователя
 const userProjects = ref<any[]>([]);
 const specialtiesList = ref<string[]>([]);
 
-// Состояния
 const isLoading = ref(true);
 const activeTab = ref('projects');
 const isEditing = ref(false);
@@ -49,8 +47,10 @@ const errorMessage = ref('');
 const isAddingProject = ref(false);
 const isSavingProject = ref(false);
 const isUploadingAvatar = ref(false);
+const isBioExpanded = ref(false);
+const expandedProjects = ref<Set<string>>(new Set());
 
-// Данные для нового проекта
+
 const newProject = ref({
   title: '',
   type: '',
@@ -59,19 +59,17 @@ const newProject = ref({
   images: [] as string[]
 });
 
-// Проверка, является ли текущий пользователь владельцем профиля
 const isOwnProfile = computed(() => {
   return !userId.value || userId.value === currentUserId.value;
 });
 
-// Проверка валидности формы проекта
 const isFormValid = computed(() => {
   return newProject.value.title.trim() !== '' &&
     newProject.value.type.trim() !== '' &&
-    newProject.value.description.trim() !== '';
+    newProject.value.description.trim() !== '' &&
+    newProject.value.images.length > 0; 
 });
 
-// Загрузка специальностей из Firestore
 const loadSpecialties = async () => {
   try {
     const specialtiesSnapshot = await getDocs(collection(db, 'specialties'));
@@ -81,7 +79,6 @@ const loadSpecialties = async () => {
   }
 };
 
-// Поиск пользователя по различным идентификаторам
 const findUserDocument = async (identifier: string) => {
   try {
     // Прямой поиск по ID документа
@@ -259,6 +256,7 @@ const removeAvatar = async () => {
 const startEditing = () => {
   editedBio.value = profileData.value.bio;
   isEditing.value = true;
+  isBioExpanded.value = true;
 };
 
 const saveProfile = async () => {
@@ -269,11 +267,10 @@ const saveProfile = async () => {
       updatedAt: new Date().toISOString()
     });
 
-    profileData.value.bio = editedBio.value;
-    isEditing.value = false;
+    isBioExpanded.value = false;
 
-    errorMessage.value = 'Профиль обновлен!';
-    setTimeout(() => { errorMessage.value = ''; }, 3000);
+    // Просто перезагружаем страницу
+    window.location.reload();
 
   } catch (error) {
     console.error('Ошибка сохранения профиля:', error);
@@ -292,8 +289,8 @@ const addSkill = async () => {
       updatedAt: new Date().toISOString()
     });
 
-    profileData.value.skills.push(newSkill.value.trim());
-    newSkill.value = '';
+    // Просто перезагружаем страницу
+    window.location.reload();
 
   } catch (error) {
     console.error('Ошибка добавления навыка:', error);
@@ -309,7 +306,7 @@ const removeSkill = async (skill: string) => {
       updatedAt: new Date().toISOString()
     });
 
-    profileData.value.skills = profileData.value.skills.filter(s => s !== skill);
+    window.location.reload();
 
   } catch (error) {
     console.error('Ошибка удаления навыка:', error);
@@ -326,8 +323,8 @@ const updateContacts = async () => {
       updatedAt: new Date().toISOString()
     });
 
-    errorMessage.value = 'Контакты обновлены!';
-    setTimeout(() => { errorMessage.value = ''; }, 3000);
+    // Просто перезагружаем страницу
+    window.location.reload();
 
   } catch (error) {
     console.error('Ошибка обновления контактов:', error);
@@ -365,7 +362,7 @@ const addProject = async () => {
       type: newProject.value.type.trim(),
       description: newProject.value.description.trim(),
       date: newProject.value.date,
-      images: newProject.value.images.length > 0 ? newProject.value.images : ['../../../public/logo.png'],
+      images: newProject.value.images.length > 0 ? newProject.value.images : ['/placeholder-project.png'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       authorId: profileData.value.id,
@@ -430,6 +427,19 @@ const removeProject = async (projectId: string) => {
     console.error('Ошибка удаления проекта:', error);
     errorMessage.value = 'Ошибка при удалении проекта';
   }
+};
+
+// Управление развертыванием описания проектов
+const toggleProjectDescription = (projectId: string) => {
+  if (expandedProjects.value.has(projectId)) {
+    expandedProjects.value.delete(projectId);
+  } else {
+    expandedProjects.value.add(projectId);
+  }
+};
+
+const isProjectExpanded = (projectId: string) => {
+  return expandedProjects.value.has(projectId);
 };
 
 // Переход на детальную страницу проекта
@@ -508,21 +518,27 @@ onMounted(() => {
           </div>
         </div>
       </div>
-
-      <!-- Остальная часть шаблона без изменений -->
       <div class="profile-content">
         <div class="container">
           <div class="profile-sidebar">
             <div class="profile-section">
               <h3 class="section-title">О себе</h3>
               <div v-if="!isEditing" class="profile-bio">
-                <p>{{ profileData.bio }}</p>
+                <p :class="{ 'bio-collapsed': !isBioExpanded && profileData.bio.length > 150 }">
+                  {{ isBioExpanded ? profileData.bio : profileData.bio.slice(0, 150) + (profileData.bio.length > 150 ?
+                    '...' : '') }}
+                </p>
+                <div v-if="profileData.bio.length > 150" class="bio-toggle">
+                  <button @click="isBioExpanded = !isBioExpanded" class="read-more-button">
+                    {{ isBioExpanded ? 'Свернуть' : 'Читать далее' }}
+                  </button>
+                </div>
                 <button v-if="isOwnProfile" @click="startEditing" class="edit-button">
                   <i class="fas fa-edit"></i> Редактировать
                 </button>
               </div>
               <div v-else class="profile-bio-edit">
-                <textarea v-model="editedBio" class="bio-textarea"></textarea>
+                <textarea v-model="editedBio" class="bio-textarea" placeholder="Расскажите о себе..."></textarea>
                 <div class="edit-actions">
                   <button @click="saveProfile" class="save-button">Сохранить</button>
                   <button @click="isEditing = false" class="cancel-button">Отмена</button>
@@ -559,7 +575,7 @@ onMounted(() => {
                 <li>
                   <i class="fab fa-behance">💿</i>
                   <input v-if="isOwnProfile" v-model="profileData.socialLinks.behance" placeholder="Ссылка на Behance"
-                    class="contact-input" @blur="updateContacts">
+                    class="contact-input">
                   <a v-else :href="profileData.socialLinks.behance" target="_blank"
                     v-show="profileData.socialLinks.behance">
                     Behance
@@ -569,7 +585,7 @@ onMounted(() => {
                 <li>
                   <i class="fab fa-dribbble">💿</i>
                   <input v-if="isOwnProfile" v-model="profileData.socialLinks.dribbble" placeholder="Ссылка на Dribbble"
-                    class="contact-input" @blur="updateContacts">
+                    class="contact-input">
                   <a v-else :href="profileData.socialLinks.dribbble" target="_blank"
                     v-show="profileData.socialLinks.dribbble">
                     Dribbble
@@ -579,13 +595,16 @@ onMounted(() => {
                 <li>
                   <i class="fab fa-vk">✌️</i>
                   <input v-if="isOwnProfile" v-model="profileData.socialLinks.vk" placeholder="Ссылка на VK"
-                    class="contact-input" @blur="updateContacts">
+                    class="contact-input">
                   <a v-else :href="profileData.socialLinks.vk" target="_blank" v-show="profileData.socialLinks.vk">
                     ВКонтакте
                   </a>
                   <span v-if="!isOwnProfile && !profileData.socialLinks.vk">Не указано</span>
                 </li>
               </ul>
+              <button v-if="isOwnProfile" @click="updateContacts" class="save-contacts-button">
+                Сохранить контакты
+              </button>
             </div>
           </div>
 
@@ -643,9 +662,11 @@ onMounted(() => {
               </div>
 
               <div class="form-group">
-                <label>Изображения проекта (можно выбрать несколько)</label>
-                <input type="file" accept="image/*" multiple @change="handleProjectFiles" class="form-input">
-                <small>Максимум 10 изображений. Изображения будут храниться локально</small>
+                <label>Изображения проекта (можно выбрать несколько) <span class="required">*</span></label>
+                <input type="file" accept="image/*" multiple @change="handleProjectFiles" class="form-input" required>
+                <small>Максимум 10 изображений. Минимум 1 изображение обязательно</small>
+                <small v-if="newProject.images.length === 0" class="error-text">Необходимо добавить хотя бы одно
+                  изображение</small>
               </div>
 
               <div v-if="newProject.images.length" class="image-previews">
@@ -690,9 +711,25 @@ onMounted(() => {
                   </button>
                 </div>
                 <div class="project-info">
-                  <h3 class="project-title">{{ project.title || 'Без названия' }}</h3>
+                  <h3 class="project-title" :title="project.title || 'Без названия'">
+                    {{ project.title || 'Без названия' }}
+                  </h3>
                   <p class="project-type">{{ project.type || 'Тип не указан' }}</p>
-                  <p class="project-description" v-if="project.description">{{ project.description }}</p>
+
+                  <!-- Описание проекта с ограничением -->
+                  <div v-if="project.description" class="project-description-container">
+                    <p :class="{ 'project-description-collapsed': !isProjectExpanded(project.id) && project.description.length > 120 }"
+                      class="project-description">
+                      {{ isProjectExpanded(project.id) ? project.description : project.description.slice(0, 120) +
+                        (project.description.length > 120 ? '...' : '') }}
+                    </p>
+                    <div v-if="project.description.length > 120" class="project-read-more">
+                      <button @click.stop="toggleProjectDescription(project.id)" class="project-read-more-button">
+                        {{ isProjectExpanded(project.id) ? 'Свернуть' : 'Читать далее' }}
+                      </button>
+                    </div>
+                  </div>
+
                   <p class="project-date">{{ new Date(project.date).toLocaleDateString() || 'Дата не указана' }}</p>
                 </div>
               </div>
@@ -727,144 +764,4 @@ onMounted(() => {
 </template>
 <style scoped lang="scss">
 @import "./profile.scss";
-
-/* Стили для загрузки аватара */
-.profile-avatar {
-  position: relative;
-  width: 150px;
-  height: 150px;
-}
-
-.avatar-image {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 4px solid #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.avatar-upload {
-  position: absolute;
-  bottom: -20px;
-  display: flex;
-}
-
-.avatar-upload-label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: #3182ce;
-  border-radius: 50%;
-  color: white;
-  cursor: pointer;
-  border: none;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-      margin: 0 0 0 25px;
-}
-
-.avatar-upload-label:hover {
-  background: #2c5282;
-  transform: scale(1.05);
-}
-
-.avatar-upload-input {
-  display: none;
-}
-
-.avatar-upload-loading {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #3182ce;
-  font-size: 18px;
-}
-
-.avatar-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  background: #48bb78;
-  color: white;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-/* Адаптивность */
-@media (max-width: 768px) {
-  .profile-avatar {
-    width: 120px;
-    height: 120px;
-  }
-
-  .avatar-upload-label {
-    width: 35px;
-    height: 35px;
-    font-size: 14px;
-  }
-}
-
-.name-and-actions {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  margin-bottom: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.edit-profile-button {
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  padding: 0.75rem 1.5rem;
-  border-radius: 25px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  }
-
-  i {
-    font-size: 0.9rem;
-  }
-}
-
-@media (max-width: 768px) {
-  .name-and-actions {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-
-  .edit-profile-button {
-    order: 2;
-  }
-}
-
-@media (max-width: 480px) {
-  .edit-profile-button {
-    width: 100%;
-    justify-content: center;
-  }
-}
 </style>

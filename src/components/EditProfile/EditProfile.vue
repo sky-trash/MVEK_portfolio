@@ -308,7 +308,7 @@ onMounted(() => {
               <div class="add-skill-form">
                 <input v-model="newSkill" type="text" placeholder="Новый навык" class="skill-input">
                 <button type="button" @click="addSkill" class="add-skill-button">
-                  <i class="fas fa-plus"></i> Добавить
+                  Добавить
                 </button>
               </div>
             </div>

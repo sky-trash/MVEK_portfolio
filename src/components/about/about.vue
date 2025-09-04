@@ -16,7 +16,6 @@ const collegeInfo = {
   }
 };
 
-// Преимущества колледжа
 const advantages = [
   {
     icon: "🎓",
@@ -40,29 +39,27 @@ const advantages = [
   }
 ];
 
-// Специальности из базы данных
 const specialties = ref<any[]>([]);
 const isLoading = ref(true);
 const error = ref('');
 
-// Загрузка специальностей из Firestore
 const loadSpecialties = async () => {
   try {
-    // Получаем все документы из коллекции 'specialties'
+
     const querySnapshot = await getDocs(collection(db, 'specialties'));
-    
-    // Преобразуем данные в массив объектов
+
+
     specialties.value = querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
     }));
-    
-    // Сортируем по имени (если нужно)
+
+
     specialties.value.sort((a, b) => a.name.localeCompare(b.name));
   } catch (err) {
     console.error('Ошибка загрузки специальностей:', err);
     error.value = 'Не удалось загрузить специальности';
-    // Запасной вариант - статические данные
+
     specialties.value = [
       { id: '1', name: "Графический дизайн" },
       { id: '2', name: "UX/UI дизайн" },
@@ -81,7 +78,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <Header/>
+  <Header />
   <main class="about-page">
     <!-- Блок с основной информацией -->
     <section class="about-hero">
@@ -114,16 +111,16 @@ onMounted(() => {
     <section class="specialties-section">
       <div class="container">
         <h2 class="section-title">Наши специальности</h2>
-        
+
         <div v-if="isLoading" class="loading-specialties">
           <div class="loading-spinner"></div>
           <p>Загрузка специальностей...</p>
         </div>
-        
+
         <div v-else-if="error" class="error-message">
           <p>{{ error }}</p>
         </div>
-        
+
         <div v-else class="specialties-grid">
           <div v-for="(specialty, index) in specialties" :key="specialty.id" class="specialty-card">
             <span class="specialty-number">0{{ index + 1 }}</span>
@@ -169,7 +166,7 @@ onMounted(() => {
       </div>
     </section>
   </main>
-  <Footer/>
+  <Footer />
 </template>
 <style scoped>
 @import "./about.scss";
