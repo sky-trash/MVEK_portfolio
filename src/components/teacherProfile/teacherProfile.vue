@@ -148,7 +148,7 @@ const fetchTeacherByUserId = async (userId: string) => {
         userId: userData.userId,
         name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
         position: userData.position || 'Преподаватель',
-        avatar: userData.avatarUrl || userData.avatarBase64 || '../../../public/logo.png',
+        avatar: userData.avatarUrl || userData.avatarBase64 || '@/public/logo.png',
         isVerified: userData.isVerified || false,
         rating: userData.rating || 0,
         bio: userData.bio || '',
@@ -194,7 +194,7 @@ const fetchTeacherData = async (teacherId: string) => {
         userId: userData.userId,
         name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
         position: userData.position || 'Преподаватель',
-        avatar: userData.avatarUrl || userData.avatarBase64 || '../../../public/logo.png',
+        avatar: userData.avatarUrl || userData.avatarBase64 || '@/public/logo.png',
         isVerified: userData.isVerified || false,
         rating: userData.rating || 0,
         bio: userData.bio || '',
@@ -386,7 +386,7 @@ const editProfile = () => {
       <!-- Шапка профиля -->
       <div class="profile-header">
         <div class="avatar-container">
-          <img :src="teacher.avatar || '../../../public/logo.png'" class="avatar">
+          <img :src="teacher.avatar || '@/public/logo.png'" class="avatar">
           <div class="verified-badge" v-if="teacher.isVerified">✓</div>
           <div v-if="isOwnProfile" class="avatar-upload">
             <label for="avatar-upload" class="avatar-upload-label">
@@ -397,7 +397,7 @@ const editProfile = () => {
             <div v-if="isUploadingAvatar" class="avatar-upload-loading">
               <i class="fas fa-spinner fa-spin"></i>
             </div>
-            <button v-if="teacher.avatar !== '../../../public/logo.png' && isOwnProfile" @click="removeAvatar"
+            <button v-if="teacher.avatar !== '@/public/logo.png' && isOwnProfile" @click="removeAvatar"
               class="avatar-upload-label" title="Удалить аватар">
               <i class="fas fa-camera">-</i>
             </button>

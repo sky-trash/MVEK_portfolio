@@ -18,7 +18,7 @@ const userId = ref(route.params.id || '');
 
 const profileData = ref({
   id: '',
-  avatar: '../../../public/logo.png',
+  avatar: '@/public/logo.png',
   nickname: '',
   fullName: '',
   group: '',
@@ -130,7 +130,7 @@ const loadProfileData = async () => {
 
       profileData.value = {
         id: userData.id,
-        avatar: data.avatarUrl || data.avatarBase64 || '../../../public/logo.png',
+        avatar: data.avatarUrl || data.avatarBase64 || '@/public/logo.png',
         nickname: data.login || '',
         fullName: [data.surname, data.name, data.lname].filter(Boolean).join(' ') || 'Не указано',
         group: data.group || 'Не указана',
@@ -490,7 +490,7 @@ onMounted(() => {
               <div v-if="isUploadingAvatar" class="avatar-upload-loading">
                 <i class="fas fa-spinner fa-spin"></i>
               </div>
-              <button v-if="profileData.avatar !== '../../../public/logo.png' && isOwnProfile" @click="removeAvatar"
+              <button v-if="profileData.avatar !== '@/public/logo.png' && isOwnProfile" @click="removeAvatar"
                 class="avatar-upload-label" title="Удалить аватар">
                 <i class="fas fa-camera">-</i>
               </button>
