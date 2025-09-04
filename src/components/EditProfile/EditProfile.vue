@@ -4,12 +4,13 @@ import Footer from '../layouts/footer/footer.vue'
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { doc, getDoc, updateDoc, collection, getDocs, where, query } from 'firebase/firestore'
-import { db, auth } from '@/firebase'
+import { db, auth, storage } from '@/firebase'
 
 const router = useRouter()
 const loading = ref(true)
 const isSaving = ref(false)
 const isDataLoading = ref(true)
+const isUploadingAvatar = ref(false)
 const errorMessage = ref('')
 const saveErrorMessage = ref('')
 const saveSuccessMessage = ref('')
@@ -27,6 +28,7 @@ const formData = ref({
   group: '',
   specialty: '',
   bio: '',
+  avatarUrl: '',
   socialLinks: {
     behance: '',
     dribbble: '',
@@ -87,6 +89,7 @@ const loadProfileData = async () => {
       group: userData.group || '',
       specialty: userData.specialty || '',
       bio: userData.bio || '',
+      avatarUrl: userData.avatarUrl || '',
       socialLinks: {
         behance: userData.socialLinks?.behance || '',
         dribbble: userData.socialLinks?.dribbble || '',
@@ -154,6 +157,7 @@ const saveProfile = async () => {
       group: formData.value.group,
       specialty: formData.value.specialty,
       bio: formData.value.bio,
+      avatarUrl: formData.value.avatarUrl,
       socialLinks: formData.value.socialLinks,
       skills: formData.value.skills,
       updatedAt: new Date()
@@ -185,7 +189,7 @@ onMounted(() => {
         <div class="edit-profile-header">
           <h1>Редактирование профиля</h1>
           <button @click="$router.back()" class="back-button">
-            <i class="fas fa-arrow-left"></i> Назад
+            Назад
           </button>
         </div>
 
@@ -296,7 +300,7 @@ onMounted(() => {
                 <span v-for="(skill, index) in formData.skills" :key="index" class="skill-tag">
                   {{ skill }}
                   <button type="button" @click="removeSkill(index)" class="skill-remove">
-                    <i class="fas fa-times"></i>
+                    <i class="fas fa-times">X</i>
                   </button>
                 </span>
               </div>

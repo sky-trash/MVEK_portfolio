@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import Header from '../layouts/header/header.vue';
-import Footer from '../layouts/footer/footer.vue';
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -10,16 +8,17 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from '@/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import Header from '../layouts/header/header.vue';
+import Footer from '../layouts/footer/footer.vue';
 
 const route = useRoute();
 const router = useRouter();
 const userId = ref(route.params.id || '');
 
-
 // Данные профиля
 const profileData = ref({
   id: '',
-  avatar: '/placeholder-avatar.png',
+  avatar: '../../../public/logo.png',
   nickname: '',
   fullName: '',
   group: '',
@@ -37,7 +36,7 @@ const profileData = ref({
 
 // Проекты пользователя
 const userProjects = ref<any[]>([]);
-const specialtiesList = ref<string[]>([]); // Список специальностей из Firestore
+const specialtiesList = ref<string[]>([]);
 
 // Состояния
 const isLoading = ref(true);
@@ -49,6 +48,7 @@ const currentUserId = ref('');
 const errorMessage = ref('');
 const isAddingProject = ref(false);
 const isSavingProject = ref(false);
+const isUploadingAvatar = ref(false);
 
 // Данные для нового проекта
 const newProject = ref({
@@ -64,7 +64,7 @@ const isOwnProfile = computed(() => {
   return !userId.value || userId.value === currentUserId.value;
 });
 
-// Проверка валидности формы
+// Проверка валидности формы проекта
 const isFormValid = computed(() => {
   return newProject.value.title.trim() !== '' &&
     newProject.value.type.trim() !== '' &&
@@ -76,29 +76,32 @@ const loadSpecialties = async () => {
   try {
     const specialtiesSnapshot = await getDocs(collection(db, 'specialties'));
     specialtiesList.value = specialtiesSnapshot.docs.map(doc => doc.data().name);
-    console.log('Загружено специальностей:', specialtiesList.value);
   } catch (error) {
     console.error('Ошибка загрузки специальностей:', error);
   }
 };
 
-// Улучшенная функция поиска пользователя
+// Поиск пользователя по различным идентификаторам
 const findUserDocument = async (identifier: string) => {
   try {
+    // Прямой поиск по ID документа
     if (!identifier.includes('/')) {
       const docRef = doc(db, 'users', identifier);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) return { doc: docSnap, id: docSnap.id };
     }
 
+    // Поиск по userId
     const q1 = query(collection(db, 'users'), where('userId', '==', identifier));
     const querySnapshot1 = await getDocs(q1);
     if (!querySnapshot1.empty) return { doc: querySnapshot1.docs[0], id: querySnapshot1.docs[0].id };
 
+    // Поиск по email
     const q2 = query(collection(db, 'users'), where('email', '==', identifier));
     const querySnapshot2 = await getDocs(q2);
     if (!querySnapshot2.empty) return { doc: querySnapshot2.docs[0], id: querySnapshot2.docs[0].id };
 
+    // Поиск по login
     const q3 = query(collection(db, 'users'), where('login', '==', identifier));
     const querySnapshot3 = await getDocs(q3);
     if (!querySnapshot3.empty) return { doc: querySnapshot3.docs[0], id: querySnapshot3.docs[0].id };
@@ -122,7 +125,6 @@ const loadProfileData = async () => {
       return;
     }
 
-    // Убеждаемся, что identifier - строка. Если это массив, берем первый элемент.
     const identifierValue = Array.isArray(identifier) ? identifier[0] : identifier;
     const userData = await findUserDocument(identifierValue);
 
@@ -131,7 +133,7 @@ const loadProfileData = async () => {
 
       profileData.value = {
         id: userData.id,
-        avatar: data.avatarUrl || '/placeholder-avatar.png',
+        avatar: data.avatarUrl || data.avatarBase64 || '../../../public/logo.png',
         nickname: data.login || '',
         fullName: [data.surname, data.name, data.lname].filter(Boolean).join(' ') || 'Не указано',
         group: data.group || 'Не указана',
@@ -185,6 +187,74 @@ const loadUserProjects = async (projectIds: string[]) => {
   }
 };
 
+// ЗАГРУЗКА АВАТАРА
+const handleAvatarUpload = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || !target.files[0]) return;
+
+  const file = target.files[0];
+
+  // Валидация файла
+  if (!file.type.match('image.*')) {
+    errorMessage.value = 'Пожалуйста, выберите изображение (JPEG, PNG, GIF, JPG)';
+    return;
+  }
+
+  if (file.size > 2 * 1024 * 1024) {
+    errorMessage.value = 'Размер файла не должен превышать 2MB';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      isUploadingAvatar.value = true;
+      errorMessage.value = '';
+
+      // Сохраняем изображение как base64
+      const imageData = e.target?.result as string;
+
+      // Обновляем данные пользователя в Firestore
+      const userRef = doc(db, 'users', profileData.value.id);
+      await updateDoc(userRef, {
+        avatarBase64: imageData,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Просто перезагружаем страницу
+      window.location.reload();
+
+    } catch (error) {
+      console.error('Ошибка загрузки аватара:', error);
+      errorMessage.value = 'Ошибка при загрузке аватара';
+    } finally {
+      isUploadingAvatar.value = false;
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+// УДАЛЕНИЕ АВАТАРА
+const removeAvatar = async () => {
+  if (!confirm('Удалить аватар?')) return;
+
+  try {
+    // Обновляем данные пользователя
+    const userRef = doc(db, 'users', profileData.value.id);
+    await updateDoc(userRef, {
+      avatarBase64: null,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Просто перезагружаем страницу
+    window.location.reload();
+
+  } catch (error) {
+    console.error('Ошибка удаления аватара:', error);
+    errorMessage.value = 'Ошибка при удалении аватара';
+  }
+};
+
 // Редактирование профиля
 const startEditing = () => {
   editedBio.value = profileData.value.bio;
@@ -195,11 +265,16 @@ const saveProfile = async () => {
   try {
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
-      bio: editedBio.value
+      bio: editedBio.value,
+      updatedAt: new Date().toISOString()
     });
 
     profileData.value.bio = editedBio.value;
     isEditing.value = false;
+
+    errorMessage.value = 'Профиль обновлен!';
+    setTimeout(() => { errorMessage.value = ''; }, 3000);
+
   } catch (error) {
     console.error('Ошибка сохранения профиля:', error);
     errorMessage.value = 'Ошибка при сохранении данных';
@@ -213,11 +288,13 @@ const addSkill = async () => {
   try {
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
-      skills: arrayUnion(newSkill.value.trim())
+      skills: arrayUnion(newSkill.value.trim()),
+      updatedAt: new Date().toISOString()
     });
 
     profileData.value.skills.push(newSkill.value.trim());
     newSkill.value = '';
+
   } catch (error) {
     console.error('Ошибка добавления навыка:', error);
     errorMessage.value = 'Ошибка при добавлении навыка';
@@ -228,10 +305,12 @@ const removeSkill = async (skill: string) => {
   try {
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
-      skills: arrayRemove(skill)
+      skills: arrayRemove(skill),
+      updatedAt: new Date().toISOString()
     });
 
     profileData.value.skills = profileData.value.skills.filter(s => s !== skill);
+
   } catch (error) {
     console.error('Ошибка удаления навыка:', error);
     errorMessage.value = 'Ошибка при удалении навыка';
@@ -243,15 +322,20 @@ const updateContacts = async () => {
   try {
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
-      socialLinks: profileData.value.socialLinks
+      socialLinks: profileData.value.socialLinks,
+      updatedAt: new Date().toISOString()
     });
+
+    errorMessage.value = 'Контакты обновлены!';
+    setTimeout(() => { errorMessage.value = ''; }, 3000);
+
   } catch (error) {
     console.error('Ошибка обновления контактов:', error);
     errorMessage.value = 'Ошибка при обновлении контактов';
   }
 };
 
-// Добавление проекта в коллекцию projects
+// Добавление проекта
 const handleProjectFiles = (event: Event) => {
   const target = event.target as HTMLInputElement;
   if (target.files && target.files.length > 0) {
@@ -281,7 +365,7 @@ const addProject = async () => {
       type: newProject.value.type.trim(),
       description: newProject.value.description.trim(),
       date: newProject.value.date,
-      images: newProject.value.images.length > 0 ? newProject.value.images : ['/placeholder-project.png'],
+      images: newProject.value.images.length > 0 ? newProject.value.images : ['../../../public/logo.png'],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       authorId: profileData.value.id,
@@ -296,24 +380,12 @@ const addProject = async () => {
 
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
-      projectIds: arrayUnion(projectRef.id)
+      projectIds: arrayUnion(projectRef.id),
+      updatedAt: new Date().toISOString()
     });
 
-    profileData.value.projectIds.push(projectRef.id);
-    userProjects.value.unshift({
-      id: projectRef.id,
-      ...projectData
-    });
-
-    newProject.value = {
-      title: '',
-      type: '',
-      description: '',
-      date: new Date().toISOString().split('T')[0],
-      images: []
-    };
-
-    isAddingProject.value = false;
+    // Просто перезагружаем страницу
+    window.location.reload();
 
   } catch (error) {
     console.error('Ошибка добавления проекта:', error);
@@ -323,7 +395,7 @@ const addProject = async () => {
   }
 };
 
-// Функция для отмены добавления проекта
+// Отмена добавления проекта
 const cancelAddProject = () => {
   isAddingProject.value = false;
   newProject.value = {
@@ -347,11 +419,12 @@ const removeProject = async (projectId: string) => {
 
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
-      projectIds: arrayRemove(projectId)
+      projectIds: arrayRemove(projectId),
+      updatedAt: new Date().toISOString()
     });
 
-    profileData.value.projectIds = profileData.value.projectIds.filter(id => id !== projectId);
-    userProjects.value = userProjects.value.filter(project => project.id !== projectId);
+    // Просто перезагружаем страницу
+    window.location.reload();
 
   } catch (error) {
     console.error('Ошибка удаления проекта:', error);
@@ -364,9 +437,14 @@ const goToProjectDetail = (projectId: string) => {
   router.push(`/project/${projectId}`);
 };
 
+// Редактирование профиля (переход на страницу редактирования)
+const editProfile = () => {
+  router.push('/profile/edit');
+};
+
 // Инициализация
 onMounted(() => {
-  loadSpecialties(); // Загружаем список специальностей
+  loadSpecialties();
   onAuthStateChanged(auth, (user) => {
     if (user) {
       currentUserId.value = user.uid;
@@ -374,15 +452,11 @@ onMounted(() => {
     loadProfileData();
   });
 });
-
-const editProfile = () => {
-  router.push('/profile/edit');
-};
 </script>
 
 <template>
   <Header />
-  <main class="profile-page">
+  <div class="profile-page">
     <div v-if="isLoading" class="loading-overlay">
       <div class="loading-spinner"></div>
     </div>
@@ -396,7 +470,21 @@ const editProfile = () => {
       <div class="profile-header">
         <div class="container">
           <div class="profile-avatar">
-            <img src="../../../public/logo.png" class="avatar-image">
+            <img :src="profileData.avatar" :alt="profileData.fullName" class="avatar-image">
+            <div v-if="isOwnProfile" class="avatar-upload">
+              <label for="avatar-upload" class="avatar-upload-label">
+                <i class="fas fa-camera">+</i>
+                <input id="avatar-upload" type="file" accept="image/jpeg,image/png,image/gif"
+                  @change="handleAvatarUpload" :disabled="isUploadingAvatar" class="avatar-upload-input">
+              </label>
+              <div v-if="isUploadingAvatar" class="avatar-upload-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+              </div>
+              <button v-if="profileData.avatar !== '../../../public/logo.png' && isOwnProfile" @click="removeAvatar"
+                class="avatar-upload-label" title="Удалить аватар">
+                <i class="fas fa-camera">-</i>
+              </button>
+            </div>
             <div class="avatar-badge">Студент</div>
           </div>
 
@@ -404,7 +492,7 @@ const editProfile = () => {
             <div class="name-and-actions">
               <h1 class="profile-name">{{ profileData.fullName }}</h1>
               <button v-if="isOwnProfile" @click="editProfile" class="edit-profile-button">
-                <i class="fas fa-edit"></i> Редактировать профиль
+                Редактировать профиль
               </button>
             </div>
             <p class="profile-nickname">@{{ profileData.nickname }}</p>
@@ -421,6 +509,7 @@ const editProfile = () => {
         </div>
       </div>
 
+      <!-- Остальная часть шаблона без изменений -->
       <div class="profile-content">
         <div class="container">
           <div class="profile-sidebar">
@@ -453,10 +542,10 @@ const editProfile = () => {
                 <div v-if="isOwnProfile" class="add-skill-form">
                   <input v-model="newSkill" type="text" placeholder="Новый навык" class="skill-input">
                   <button @click="addSkill" class="add-skill-button">
-                    <i class="fas fa-plus"></i> Добавить
+                    Добавить
                   </button>
                 </div>
-                <p v-if="!profileData.skills.length">Навыки не указаны</p>
+                <p v-if="!profileData.skills.length && !isOwnProfile">Навыки не указаны</p>
               </div>
             </div>
 
@@ -464,7 +553,7 @@ const editProfile = () => {
               <h3 class="section-title">Контакты</h3>
               <ul class="contact-list">
                 <li v-if="profileData.email">
-                  <i class="fas fa-envelope">✉️</i>
+                  <i class="fas fa-envelope">📩</i>
                   <span>{{ profileData.email }}</span>
                 </li>
                 <li>
@@ -563,7 +652,7 @@ const editProfile = () => {
                 <div v-for="(image, index) in newProject.images" :key="index" class="image-preview-item">
                   <img :src="image" alt="Превью" class="preview-image">
                   <button @click="newProject.images.splice(index, 1)" class="remove-image-button">
-                    <i class="fas fa-times"></i>
+                    <i class="fas fa-times">X</i>
                   </button>
                 </div>
               </div>
@@ -633,11 +722,99 @@ const editProfile = () => {
         </div>
       </div>
     </div>
-  </main>
+  </div>
   <Footer />
 </template>
 <style scoped lang="scss">
 @import "./profile.scss";
+
+/* Стили для загрузки аватара */
+.profile-avatar {
+  position: relative;
+  width: 150px;
+  height: 150px;
+}
+
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.avatar-upload {
+  position: absolute;
+  bottom: -20px;
+  display: flex;
+}
+
+.avatar-upload-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: #3182ce;
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  border: none;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      margin: 0 0 0 25px;
+}
+
+.avatar-upload-label:hover {
+  background: #2c5282;
+  transform: scale(1.05);
+}
+
+.avatar-upload-input {
+  display: none;
+}
+
+.avatar-upload-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3182ce;
+  font-size: 18px;
+}
+
+.avatar-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #48bb78;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .profile-avatar {
+    width: 120px;
+    height: 120px;
+  }
+
+  .avatar-upload-label {
+    width: 35px;
+    height: 35px;
+    font-size: 14px;
+  }
+}
 
 .name-and-actions {
   display: flex;
