@@ -323,7 +323,7 @@ onMounted(() => {
 
       <div v-else class="empty-state">
         <i class="fas fa-folder-open"></i>
-        <p>Проекты не найдены</p>
+        <p>Проекты не найдены или нужно войти в аккаунт</p>
         <button @click="
           searchQuery = '';
         selectedType = 'all';

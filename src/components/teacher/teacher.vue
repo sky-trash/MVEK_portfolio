@@ -294,7 +294,7 @@ onMounted(() => {
 
       <div v-else class="empty-state">
         <i class="fas fa-user-graduate"></i>
-        <p>Преподаватели не найдены</p>
+        <p>Преподаватели не найдены или нужно войти в аккаунт</p>
         <button @click="
           searchQuery = '';
         selectedDepartment = 'all';

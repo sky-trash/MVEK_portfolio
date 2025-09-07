@@ -205,7 +205,7 @@ onMounted(() => {
 
     <div v-else class="empty-state">
       <i class="fas fa-user-graduate"></i>
-      <p>Студенты не найдены</p>
+      <p>Студенты не найдены или нужно войти в аккаунт</p>
     </div>
   </main>
   <Footer />
