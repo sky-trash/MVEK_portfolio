@@ -53,6 +53,20 @@ const currentUserId = ref('');
 const errorMessage = ref('');
 const isBioExpanded = ref(false);
 const maxBioLength = 100; // Максимальная длина текста в свернутом состоянии
+const visibleProjectsCount = ref(4); // Показываем первые 4 проекта
+
+const hasMoreProjects = computed(() => {
+  return visibleProjectsCount.value < userProjects.value.length;
+});
+
+const showMoreProjects = () => {
+  visibleProjectsCount.value += 4;
+};
+
+// Проекты для отображения
+const visibleProjects = computed(() => {
+  return userProjects.value.slice(0, visibleProjectsCount.value);
+});
 
 const truncatedBio = computed(() => {
   return profileData.value.bio.slice(0, maxBioLength) +
@@ -310,28 +324,41 @@ onMounted(() => {
               </button>
             </div>
 
-            <div v-if="activeTab === 'projects'" class="projects-grid">
-              <div v-for="(project, index) in userProjects" :key="index" class="project-card"
-                @click="goToProjectDetail(project.id)">
-                <div class="project-image-container">
-                  <img :src="project.images[0] || '/placeholder-project.png'" :alt="project.title"
-                    class="project-image">
-                  <div class="project-overlay">
-                    <span class="project-rating">
-                      <i class="fas fa-star"></i> {{ project.rating || 0 }}
-                    </span>
-                    <span class="project-views">
-                      <i class="fas fa-eye"></i> {{ project.views || 0 }}
-                    </span>
+            <div v-if="activeTab === 'projects'" class="projects-section">
+              <div class="projects-grid">
+                <div v-for="(project, index) in visibleProjects" :key="index" class="project-card"
+                  @click="goToProjectDetail(project.id)">
+                  <div class="project-image-container">
+                    <img :src="project.images[0] || '/placeholder-project.png'" :alt="project.title"
+                      class="project-image">
+                    <div class="project-overlay">
+                      <span class="project-rating">
+                        <i class="fas fa-star"></i> {{ project.rating || 0 }}
+                      </span>
+                      <span class="project-views">
+                        <i class="fas fa-eye"></i> {{ project.views || 0 }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="project-info">
+                    <h3 class="project-title">{{ project.title || 'Без названия' }}</h3>
+                    <p class="project-type">{{ project.type || 'Тип не указан' }}</p>
+                    <p class="project-description" v-if="project.description">{{ project.description }}</p>
+                    <p class="project-date">{{ new Date(project.date).toLocaleDateString() || 'Дата не указана' }}</p>
                   </div>
                 </div>
-                <div class="project-info">
-                  <h3 class="project-title">{{ project.title || 'Без названия' }}</h3>
-                  <p class="project-type">{{ project.type || 'Тип не указан' }}</p>
-                  <p class="project-description" v-if="project.description">{{ project.description }}</p>
-                  <p class="project-date">{{ new Date(project.date).toLocaleDateString() || 'Дата не указана' }}</p>
-                </div>
               </div>
+
+              <!-- Кнопка "Показать еще" -->
+              <div v-if="hasMoreProjects" class="load-more-container">
+                <button @click="showMoreProjects" class="load-more-button">
+                  <i class="fas fa-chevron-down"></i>
+                  Показать еще
+                  <span class="projects-count">({{ userProjects.length - visibleProjectsCount }} из {{
+                    userProjects.length }})</span>
+                </button>
+              </div>
+
               <div v-if="!userProjects.length" class="empty-state">
                 <i class="fas fa-folder-open"></i>
                 <p>Проекты не найдены</p>
@@ -360,4 +387,66 @@ onMounted(() => {
 </template>
 <style scoped lang="scss">
 @import "./studentsProfile.scss";
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+  padding: 1rem 0;
+}
+
+.load-more-button {
+  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 1rem 2rem;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 15px rgba(74, 108, 247, 0.3);
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(74, 108, 247, 0.4);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  .projects-count {
+    font-size: 0.9rem;
+    opacity: 0.9;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 0.3rem 0.8rem;
+    border-radius: 20px;
+    margin-left: 0.5rem;
+  }
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .load-more-button {
+    padding: 0.9rem 1.5rem;
+    font-size: 0.9rem;
+
+    .projects-count {
+      font-size: 0.8rem;
+      padding: 0.2rem 0.6rem;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .load-more-button {
+    width: 100%;
+    max-width: 280px;
+    justify-content: center;
+  }
+}
 </style>

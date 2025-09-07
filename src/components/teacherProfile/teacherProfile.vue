@@ -148,7 +148,7 @@ const fetchTeacherByUserId = async (userId: string) => {
         userId: userData.userId,
         name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
         position: userData.position || 'Преподаватель',
-        avatar: userData.avatarUrl || userData.avatarBase64 || '@/public/logo.png',
+        avatar: userData.avatarUrl || userData.avatarBase64 || '../../../public/logo.png',
         isVerified: userData.isVerified || false,
         rating: userData.rating || 0,
         bio: userData.bio || '',
@@ -194,7 +194,7 @@ const fetchTeacherData = async (teacherId: string) => {
         userId: userData.userId,
         name: `${userData.surname} ${userData.name} ${userData.lname || ''}`.trim(),
         position: userData.position || 'Преподаватель',
-        avatar: userData.avatarUrl || userData.avatarBase64 || '@/public/logo.png',
+        avatar: userData.avatarUrl || userData.avatarBase64 || '../../../public/logo.png',
         isVerified: userData.isVerified || false,
         rating: userData.rating || 0,
         bio: userData.bio || '',
@@ -298,7 +298,7 @@ const removeAvatar = async () => {
 
     // Обновляем локально
     if (teacher.value) {
-      teacher.value.avatar = '@/public/logo.png';
+      teacher.value.avatar = '../../../public/logo.png';
     }
 
   } catch (error) {

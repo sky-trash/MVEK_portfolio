@@ -1,612 +1,342 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { collection, getDocs, query, orderBy, where } from 'firebase/firestore'
-import { db } from '@/firebase'
-import { getAuth, onAuthStateChanged } from 'firebase/auth'
-import Header from '../layouts/header/header.vue'
-import Footer from '../layouts/footer/footer.vue'
+import Header from '../layouts/header/header.vue';
+import Footer from '../layouts/footer/footer.vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/firebase';
 
-const router = useRouter()
-const auth = getAuth()
+interface Project {
+  id: string;
+  title: string;
+  type: string;
+  authorId: string;
+  authorName: string;
+  authorLname: string;
+  group: string;
+  specialty: string;
+  date: string;
+  views: number;
+  rating: number;
+  tags: string[];
+  description: string;
+  coverImage: string;
+  images: string[];
+  createdAt: Date;
+}
 
-// Данные
-const projects = ref<any[]>([])
-const currentUser = ref<any>(null)
-const allUsers = ref<any[]>([])
+interface User {
+  id: string;
+  name: string;
+  lname: string;
+  group: string;
+  specialty: string;
+  role: string;
+}
+
+const projects = ref<Project[]>([]);
+const users = ref<Map<string, User>>(new Map());
+const isLoading = ref(true);
+const visibleProjectsCount = ref(9); // Показываем первые 9 проектов
 
 // Фильтры
-const searchQuery = ref('')
-const selectedGroup = ref('')
-const selectedSpecialty = ref('')
-const selectedProjectType = ref('')
+const searchQuery = ref('');
+const selectedType = ref('all');
+const selectedGroup = ref('all');
+const selectedSpecialty = ref('all');
+const sortBy = ref('date');
 
-// Состояние загрузки
-const isLoading = ref(true)
-
-// Уникальные значения для фильтров
-const groups = ref<string[]>([])
-const specialties = ref<string[]>([])
-const projectTypes = ref<string[]>([])
-
-// Вспомогательная функция для безопасного получения значений
-const getSafeValue = (obj: any, key: string): string => {
-  if (!obj || typeof obj !== 'object') return ''
-  
-  // Проверяем различные варианты написания ключа
-  const keys = Object.keys(obj)
-  const foundKey = keys.find(k => k.toLowerCase() === key.toLowerCase())
-  
-  if (foundKey) {
-    const value = obj[foundKey]
-    return value ? String(value).trim() : ''
+// Функция для получения URL изображения
+const getImageUrl = (image: string): string => {
+  if (image && image !== 'https://via.placeholder.com/800x500?text=Project') {
+    return image;
   }
-  
-  return ''
-}
+  return '/logo.png'; // Дефолтное изображение из public
+};
 
-// Нормализация строки для сравнения
-const normalizeString = (str: string): string => {
-  return str ? str.toString().toLowerCase().trim().replace(/\s+/g, ' ') : ''
-}
-
-// Загрузка всех пользователей
-const loadAllUsers = async () => {
-  try {
-    const usersQuery = query(collection(db, 'users'))
-    const usersSnapshot = await getDocs(usersQuery)
-    
-    if (!usersSnapshot.empty) {
-      allUsers.value = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-    }
-  } catch (error) {
-    console.error('Ошибка загрузки пользователей:', error)
-  }
-}
-
-// Загрузка текущего пользователя
-const loadCurrentUser = async () => {
-  try {
-    const user = auth.currentUser
-    if (!user) return null
-
-    const usersQuery = query(collection(db, 'users'), where('userId', '==', user.uid))
-    const usersSnapshot = await getDocs(usersQuery)
-    
-    if (!usersSnapshot.empty) {
-      currentUser.value = {
-        id: usersSnapshot.docs[0].id,
-        ...usersSnapshot.docs[0].data()
-      }
-    }
-  } catch (error) {
-    console.error('Ошибка загрузки пользователя:', error)
-  }
-}
-
-// Загрузка проектов
+// Загрузка проектов из Firestore
 const loadProjects = async () => {
   try {
-    const projectsQuery = query(collection(db, 'projects'), orderBy('createdAt', 'desc'))
-    const projectsSnapshot = await getDocs(projectsQuery)
+    const projectsSnapshot = await getDocs(collection(db, 'projects'));
+    const usersSnapshot = await getDocs(collection(db, 'users'));
 
-    if (projectsSnapshot.empty) {
-      projects.value = []
-    } else {
-      projects.value = projectsSnapshot.docs.map(doc => {
-        const data = doc.data()
-        return {
-          id: doc.id,
-          ...data,
-          title: getSafeValue(data, 'title') || 'Без названия',
-          authorName: getSafeValue(data, 'authorName') || 'Неизвестен',
-          group: getSafeValue(data, 'group'),
-          specialty: getSafeValue(data, 'specialty'),
-          type: getSafeValue(data, 'type'),
-          description: getSafeValue(data, 'description'),
-          images: Array.isArray(data.images) ? data.images : [],
-          views: Number(data.views) || 0,
-          likes: Number(data.likes) || 0,
-          totalRating: Number(data.totalRating) || 0,
-          ratingCount: Number(data.ratingCount) || 0
+    // Загружаем пользователей в Map для быстрого доступа
+    const usersMap = new Map<string, User>();
+    usersSnapshot.forEach((doc) => {
+      const data = doc.data();
+      usersMap.set(doc.id, {
+        id: doc.id,
+        name: data.name || '',
+        lname: data.lname || '',
+        group: data.group || 'Не указана',
+        specialty: data.specialty || 'Не указана',
+        role: data.role || ''
+      });
+    });
+
+    users.value = usersMap;
+
+    // Загружаем проекты
+    const projectsData: Project[] = [];
+    for (const docSnapshot of projectsSnapshot.docs) {
+      const data = docSnapshot.data();
+      const authorId = data.authorId || '';
+      const author = usersMap.get(authorId);
+
+      // Добавляем только проекты студентов
+      if (author && author.role === 'student') {
+        let createdAtDate: Date;
+
+        try {
+          if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+            createdAtDate = data.createdAt.toDate();
+          } else if (data.createdAt && data.createdAt.seconds) {
+            createdAtDate = new Date(data.createdAt.seconds * 1000);
+          } else if (data.createdAt) {
+            createdAtDate = new Date(data.createdAt);
+          } else {
+            createdAtDate = new Date();
+          }
+        } catch (error) {
+          console.warn('Ошибка обработки даты:', error);
+          createdAtDate = new Date();
         }
-      })
+
+        projectsData.push({
+          id: docSnapshot.id,
+          title: data.title || 'Без названия',
+          type: data.type || 'Не указан',
+          authorId: authorId,
+          authorName: author.name,
+          authorLname: author.lname,
+          group: author.group,
+          specialty: author.specialty,
+          date: createdAtDate.toLocaleDateString('ru-RU'),
+          views: data.views || 0,
+          rating: data.rating || 0,
+          tags: data.tags || [],
+          description: data.description || '',
+          coverImage: data.coverImage || data.images?.[0] || '',
+          images: data.images || [],
+          createdAt: createdAtDate
+        });
+      }
     }
+
+    projects.value = projectsData;
   } catch (error) {
-    console.error('Ошибка загрузки проектов:', error)
-    projects.value = []
-  }
-}
-
-// Загрузка всех данных
-const loadData = async () => {
-  try {
-    isLoading.value = true
-    
-    await Promise.all([
-      loadProjects(),
-      loadAllUsers(),
-      loadCurrentUser()
-    ])
-
-    // Собираем уникальные значения для фильтров
-    const uniqueGroups = new Set<string>()
-    const uniqueSpecialties = new Set<string>()
-    const uniqueTypes = new Set<string>()
-
-    // Добавляем значения из проектов
-    projects.value.forEach(project => {
-      if (project.group) uniqueGroups.add(project.group)
-      if (project.specialty) uniqueSpecialties.add(project.specialty)
-      if (project.type) uniqueTypes.add(project.type)
-    })
-
-    // Добавляем значения из пользователей
-    allUsers.value.forEach(user => {
-      const userGroup = getSafeValue(user, 'group')
-      const userSpecialty = getSafeValue(user, 'specialty')
-      
-      if (userGroup) uniqueGroups.add(userGroup)
-      if (userSpecialty) uniqueSpecialties.add(userSpecialty)
-    })
-
-    groups.value = Array.from(uniqueGroups).sort((a, b) => a.localeCompare(b))
-    specialties.value = Array.from(uniqueSpecialties).sort((a, b) => a.localeCompare(b))
-    projectTypes.value = Array.from(uniqueTypes).sort((a, b) => a.localeCompare(b))
-
-  } catch (error) {
-    console.error('Ошибка загрузки данных:', error)
+    console.error('Ошибка загрузки проектов:', error);
   } finally {
-    isLoading.value = false
+    isLoading.value = false;
   }
-}
+};
 
-// Вычисляем отфильтрованные проекты
+// Получение уникальных значений для фильтров
+const projectTypes = computed(() => {
+  const types = new Set(projects.value.map(p => p.type));
+  return [...types].filter(type => type && type !== 'Не указан' && type !== 'all');
+});
+
+const projectGroups = computed(() => {
+  const groups = new Set(projects.value.map(p => p.group));
+  return [...groups].filter(group => group && group !== 'Не указана' && group !== 'all');
+});
+
+const projectSpecialties = computed(() => {
+  const specialties = new Set(projects.value.map(p => p.specialty));
+  return [...specialties].filter(specialty => specialty && specialty !== 'Не указана' && specialty !== 'all');
+});
+
+// Фильтрация и сортировка проектов
 const filteredProjects = computed(() => {
-  if (projects.value.length === 0) return []
+  let result = [...projects.value];
 
-  const searchTerm = normalizeString(searchQuery.value)
-
-  return projects.value.filter(project => {
-    // Поиск по нескольким полям
-    const matchesSearch = searchTerm === '' ||
-      normalizeString(project.title).includes(searchTerm) ||
-      normalizeString(project.authorName).includes(searchTerm) ||
-      normalizeString(project.group).includes(searchTerm) ||
-      normalizeString(project.description).includes(searchTerm) ||
-      normalizeString(project.specialty).includes(searchTerm)
-
-    // Фильтрация по группе
-    const matchesGroup = selectedGroup.value === '' ||
-      normalizeString(project.group) === normalizeString(selectedGroup.value)
-
-    // Фильтрация по специальности
-    const matchesSpecialty = selectedSpecialty.value === '' ||
-      normalizeString(project.specialty) === normalizeString(selectedSpecialty.value)
-
-    // Фильтрация по типу проекта
-    const matchesProjectType = selectedProjectType.value === '' ||
-      normalizeString(project.type) === normalizeString(selectedProjectType.value)
-
-    return matchesSearch && matchesGroup && matchesSpecialty && matchesProjectType
-  })
-})
-
-
-// Переход на детальную страницу
-const goToProjectDetail = (projectId: string) => {
-  router.push(`/project/${projectId}`)
-}
-
-// Сброс фильтров
-const clearFilters = () => {
-  searchQuery.value = ''
-  selectedGroup.value = ''
-  selectedSpecialty.value = ''
-  selectedProjectType.value = ''
-}
-
-// Фильтрация по группе пользователя
-const filterByUserGroup = () => {
-  if (currentUser.value) {
-    const userGroup = getSafeValue(currentUser.value, 'group')
-    if (userGroup) {
-      selectedGroup.value = userGroup
-      selectedSpecialty.value = ''
-      selectedProjectType.value = ''
-    }
+  // Фильтрация по поиску
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase();
+    result = result.filter(p =>
+      p.title.toLowerCase().includes(query) ||
+      p.description.toLowerCase().includes(query) ||
+      `${p.authorName} ${p.authorLname}`.toLowerCase().includes(query) ||
+      p.tags.some(tag => tag.toLowerCase().includes(query))
+    );
   }
-}
 
-// Фильтрация по специальности пользователя
-const filterByUserSpecialty = () => {
-  if (currentUser.value) {
-    const userSpecialty = getSafeValue(currentUser.value, 'specialty')
-    if (userSpecialty) {
-      selectedSpecialty.value = userSpecialty
-      selectedGroup.value = ''
-      selectedProjectType.value = ''
-    }
+  // Фильтрация по типу
+  if (selectedType.value !== 'all') {
+    result = result.filter(p => p.type === selectedType.value);
   }
-}
+
+  // Фильтрация по группе
+  if (selectedGroup.value !== 'all') {
+    result = result.filter(p => p.group === selectedGroup.value);
+  }
+
+  // Фильтрация по специальности
+  if (selectedSpecialty.value !== 'all') {
+    result = result.filter(p => p.specialty === selectedSpecialty.value);
+  }
+
+  // Сортировка
+  if (sortBy.value === 'date') {
+    result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  } else if (sortBy.value === 'rating') {
+    result.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  } else if (sortBy.value === 'views') {
+    result.sort((a, b) => (b.views || 0) - (a.views || 0));
+  }
+
+  return result;
+});
+
+// Проекты для отображения (с ограничением по количеству)
+const visibleProjects = computed(() => {
+  return filteredProjects.value.slice(0, visibleProjectsCount.value);
+});
+
+// Есть ли еще проекты для загрузки
+const hasMoreProjects = computed(() => {
+  return visibleProjectsCount.value < filteredProjects.value.length;
+});
+
+// Показать еще проекты
+const showMoreProjects = () => {
+  visibleProjectsCount.value += 9;
+};
+
+// Сброс счетчика при изменении фильтров
+watch([searchQuery, selectedType, selectedGroup, selectedSpecialty], () => {
+  visibleProjectsCount.value = 9;
+});
 
 onMounted(() => {
-  loadData()
-
-  // Слушатель изменения статуса аутентификации
-  onAuthStateChanged(auth, (user) => {
-    if (user) {
-      loadCurrentUser()
-    } else {
-      currentUser.value = null
-    }
-  })
-})
+  loadProjects();
+});
 </script>
 
 <template>
   <Header />
-  <main class="home-page">
-    <!-- Баннер с названием -->
-    <section class="banner">
-      <h1 class="banner__title">Портфолио МВЕК</h1>
-    </section>
+  <main class="projects-page">
+    <div class="container">
+      <!-- Баннер с названием -->
+      <section class="banner">
+        <h1 class="banner__title">Портфолио МВЕК</h1>
+      </section>
 
-    <!-- Поисковая строка с фильтрами -->
-    <section class="search-section">
-      <div class="search-container">
-        <input v-model="searchQuery" type="text" class="search-input"
-          placeholder="Поиск по имени, группе, проекту или описанию..." />
-        <button @click="clearFilters" class="clear-button">Сбросить</button>
+      <!-- Фильтры и сортировка -->
+      <div class="projects-filters">
+        <div class="search-box">
+          <input v-model="searchQuery" type="text" placeholder="Поиск проектов, авторов или тегов..."
+            class="search-input">
+          <i class="fas fa-search"></i>
+        </div>
+
+        <div class="filter-row">
+          <div class="filter-group">
+            <label>Тип проекта:</label>
+            <select v-model="selectedType" class="filter-select">
+              <option value="all">Все типы</option>
+              <option v-for="type in projectTypes" :key="type" :value="type">
+                {{ type }}
+              </option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Группа:</label>
+            <select v-model="selectedGroup" class="filter-select">
+              <option value="all">Все группы</option>
+              <option v-for="group in projectGroups" :key="group" :value="group">
+                {{ group }}
+              </option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Специальность:</label>
+            <select v-model="selectedSpecialty" class="filter-select">
+              <option value="all">Все специальности</option>
+              <option v-for="specialty in projectSpecialties" :key="specialty" :value="specialty">
+                {{ specialty }}
+              </option>
+            </select>
+          </div>
+        </div>
       </div>
 
-      <div class="filters">
-        <select v-model="selectedGroup" class="filter-select">
-          <option value="">Все группы</option>
-          <option v-for="group in groups" :key="group" :value="group">{{ group }}</option>
-        </select>
+      <!-- Список проектов -->
+      <div v-if="isLoading" class="loading-spinner-container">
+        <div class="loading-spinner"></div>
+      </div>
 
-        <select v-model="selectedSpecialty" class="filter-select">
-          <option value="">Все специальности</option>
-          <option v-for="specialty in specialties" :key="specialty" :value="specialty">{{ specialty }}</option>
-        </select>
+      <div v-else-if="filteredProjects.length > 0" class="projects-content">
+        <div class="projects-grid">
+          <div v-for="projectItem in visibleProjects" :key="projectItem.id" class="project-card">
+            <router-link :to="`/project/${projectItem.id}`" class="project-link">
+              <div class="project-image-container">
+                <img :src="getImageUrl(projectItem.coverImage)" :alt="projectItem.title" class="project-image">
+                <div class="project-overlay">
+                  <span class="project-rating">
+                    <i class="fas fa-star"></i> {{ projectItem.rating.toFixed(1) }}
+                  </span>
+                  <span class="project-views">
+                    <i class="fas fa-eye"></i> {{ projectItem.views }}
+                  </span>
+                </div>
+              </div>
+              <div class="project-info">
+                <h3 class="project-title">{{ projectItem.title }}</h3>
+                <p class="project-type">{{ projectItem.type }}</p>
+                <div class="project-meta">
+                  <span class="meta-item">
+                    <i class="fas fa-user"></i> {{ projectItem.authorName }} {{ projectItem.authorLname }}
+                  </span>
+                  <span class="meta-item">
+                    <i class="fas fa-users"></i> {{ projectItem.group }}
+                  </span>
+                  <span class="meta-item">
+                    <i class="fas fa-graduation-cap"></i> {{ projectItem.specialty }}
+                  </span>
+                  <span class="meta-item">
+                    <i class="fas fa-calendar-alt"></i> {{ projectItem.date }}
+                  </span>
+                </div>
+                <div class="project-tags">
+                  <span v-for="tag in projectItem.tags" :key="tag" class="tag">
+                    {{ tag }}
+                  </span>
+                </div>
+              </div>
+            </router-link>
+          </div>
+        </div>
 
-        <select v-model="selectedProjectType" class="filter-select">
-          <option value="">Все типы проектов</option>
-          <option v-for="type in projectTypes" :key="type" :value="type">{{ type }}</option>
-        </select>
-
-        <!-- Кнопки для фильтрации по данным пользователя -->
-        <div class="user-filters" v-if="currentUser">
-          <button @click="filterByUserGroup" class="user-filter-button group-button" 
-                  v-if="getSafeValue(currentUser, 'group')">
-            Моя группа: {{ getSafeValue(currentUser, 'group') }}
-          </button>
-          <button @click="filterByUserSpecialty" class="user-filter-button specialty-button"
-                  v-if="getSafeValue(currentUser, 'specialty')">
-            Моя специальность: {{ getSafeValue(currentUser, 'specialty') }}
+        <!-- Кнопка "Показать еще" -->
+        <div v-if="hasMoreProjects" class="load-more-container">
+          <button @click="showMoreProjects" class="load-more-button">
+            <i class="fas fa-chevron-down"></i>
+            Показать еще
+            <span class="projects-count">({{ filteredProjects.length - visibleProjectsCount }} из {{
+              filteredProjects.length }})</span>
           </button>
         </div>
       </div>
 
-      <!-- Информация о результатах -->
-      <div class="results-info" v-if="projects.length > 0">
-        <p class="results-count">Найдено проектов: {{ filteredProjects.length }} из {{ projects.length }}</p>
-        <p class="filter-info" v-if="selectedGroup">Фильтр по группе: {{ selectedGroup }}</p>
-        <p class="filter-info" v-if="selectedSpecialty">Фильтр по специальности: {{ selectedSpecialty }}</p>
-        <p class="user-filter-info" v-if="currentUser && selectedGroup === getSafeValue(currentUser, 'group')">
-          Показаны проекты вашей группы
-        </p>
-        <p class="user-filter-info" v-if="currentUser && selectedSpecialty === getSafeValue(currentUser, 'specialty')">
-          Показаны проекты вашей специальности
-        </p>
+      <div v-else class="empty-state">
+        <i class="fas fa-folder-open"></i>
+        <p>Проекты не найдены</p>
+        <button @click="
+          searchQuery = '';
+        selectedType = 'all';
+        selectedGroup = 'all';
+        selectedSpecialty = 'all';
+        " class="reset-filters">
+          Сбросить фильтры
+        </button>
       </div>
-    </section>
-
-    <!-- Лучшие работы -->
-    <section class="featured-works">
-      <h2 class="section-title">Лучшие работы</h2>
-
-      <div v-if="isLoading" class="loading">
-        <p>Загрузка проектов...</p>
-      </div>
-
-      <div v-else-if="projects.length === 0" class="no-results">
-        <p>Проекты не найдены в базе данных.</p>
-        <button @click="loadData" class="clear-button">Попробовать снова</button>
-      </div>
-
-      <div v-else-if="filteredProjects.length === 0" class="no-results">
-        <p>Проекты не найдены по выбранным фильтрам.</p>
-        <button @click="clearFilters" class="clear-button">Сбросить фильтры</button>
-      </div>
-
-      <div v-else class="works-grid">
-        <div v-for="project in filteredProjects" :key="project.id" class="project-card"
-          @click="goToProjectDetail(project.id)">
-          <div class="project-image" v-if="project.images && project.images.length">
-            <img :src="project.images[0]" :alt="project.title" />
-          </div>
-          <div class="project-info">
-            <h3 class="project-title">{{ project.title }}</h3>
-            <p class="project-author">Автор: {{ project.authorName }}</p>
-            <p class="project-group" v-if="project.group">Группа: {{ project.group }}</p>
-            <p class="project-specialty" v-if="project.specialty">Специальность: {{ project.specialty }}</p>
-            <p class="project-type">Тип: {{ project.type || 'Не указан' }}</p>
-            <div class="project-stats">
-              <span class="views">👁️ {{ project.views }}</span>
-              <span class="likes">❤️ {{ project.likes }}</span>
-              <span class="rating">⭐ {{ project.ratingCount ? (project.totalRating / project.ratingCount).toFixed(1) : '0.0' }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    </div>
   </main>
   <Footer />
 </template>
-
-<style scoped>
-
-.banner {
-  text-align: center;
-  padding: 2rem 0;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  margin-bottom: 2rem;
-}
-
-.banner__title {
-  font-size: 2.5rem;
-  color: white;
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.search-section {
-  background: rgba(255, 255, 255, 0.95);
-  padding: 1.5rem;
-  border-radius: 12px;
-  margin: 0 2rem 2rem;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.search-container {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  align-items: center;
-}
-
-.search-input {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  border: 2px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 1rem;
-  outline: none;
-  transition: border-color 0.3s ease;
-}
-
-.search-input:focus {
-  border-color: #667eea;
-}
-
-.clear-button {
-  padding: 0.75rem 1.5rem;
-  background: #667eea;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 500;
-  transition: background 0.3s ease;
-}
-
-.clear-button:hover {
-  background: #5a67d8;
-}
-
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.filter-select {
-  padding: 0.75rem;
-  border: 2px solid #e2e8f0;
-  border-radius: 8px;
-  background: white;
-  font-size: 0.9rem;
-  min-width: 180px;
-  outline: none;
-  transition: border-color 0.3s ease;
-}
-
-.filter-select:focus {
-  border-color: #667eea;
-}
-
-.user-filters {
-  display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.user-filter-button {
-  padding: 0.6rem 1rem;
-  border: 2px solid;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  outline: none;
-}
-
-.user-filter-button.group-button {
-  background: rgba(102, 126, 234, 0.1);
-  border-color: #667eea;
-  color: #667eea;
-}
-
-.user-filter-button.group-button:hover {
-  background: #667eea;
-  color: white;
-}
-
-.user-filter-button.specialty-button {
-  background: rgba(118, 75, 162, 0.1);
-  border-color: #764ba2;
-  color: #764ba2;
-}
-
-.user-filter-button.specialty-button:hover {
-  background: #764ba2;
-  color: white;
-}
-
-.results-info {
-  padding: 1rem;
-  background: #f7fafc;
-  border-radius: 8px;
-  border-left: 4px solid #667eea;
-}
-
-.results-count {
-  font-weight: 600;
-  color: #2d3748;
-  margin-bottom: 0.5rem;
-  font-size: 1rem;
-}
-
-.filter-info {
-  color: #4a5568;
-  font-size: 0.9rem;
-  margin: 0.25rem 0;
-  padding-left: 0.5rem;
-  border-left: 2px solid #cbd5e0;
-}
-
-.user-filter-info {
-  color: #667eea;
-  font-weight: 500;
-  font-size: 0.9rem;
-  margin: 0.25rem 0;
-  padding-left: 0.5rem;
-  border-left: 2px solid #667eea;
-}
-
-.featured-works {
-  padding: 0 2rem 2rem;
-}
-
-.section-title {
-  text-align: center;
-  color: white;
-  font-size: 2rem;
-  margin-bottom: 2rem;
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.loading, .no-results {
-  text-align: center;
-  padding: 3rem;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  color: #4a5568;
-}
-
-.works-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1.5rem;
-}
-
-.project-card {
-  background: white;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  cursor: pointer;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.project-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-.project-image img {
-  width: 100%;
-  height: 200px;
-  object-fit: cover;
-}
-
-.project-info {
-  padding: 1.5rem;
-}
-
-.project-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #2d3748;
-  margin-bottom: 0.75rem;
-}
-
-.project-author, .project-group, .project-specialty, .project-type {
-  color: #4a5568;
-  margin-bottom: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.project-stats {
-  display: flex;
-  gap: 1rem;
-  margin-top: 1rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid #e2e8f0;
-}
-
-.project-stats span {
-  font-size: 0.85rem;
-  color: #718096;
-}
-
-@media (max-width: 768px) {
-  .search-section {
-    margin: 0 1rem 1.5rem;
-    padding: 1rem;
-  }
-  
-  .filters {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  
-  .filter-select {
-    min-width: auto;
-    width: 100%;
-  }
-  
-  .user-filters {
-    justify-content: center;
-  }
-  
-  .featured-works {
-    padding: 0 1rem 1.5rem;
-  }
-  
-  .works-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
 <style scoped>
 @import "./home.scss";
 </style>

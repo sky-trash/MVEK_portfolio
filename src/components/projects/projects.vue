@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/firebase'; // УБРАЛИ .ts - импорт без расширения
+import { db } from '@/firebase';
 
 interface Project {
   id: string;
@@ -21,7 +21,7 @@ interface Project {
   description: string;
   coverImage: string;
   images: string[];
-  createdAt: Date; // Изменили на Date
+  createdAt: Date;
 }
 
 interface User {
@@ -34,9 +34,9 @@ interface User {
 }
 
 const projects = ref<Project[]>([]);
-// УБРАЛИ: const project = ref<any>(null) - эта переменная не используется здесь
 const users = ref<Map<string, User>>(new Map());
 const isLoading = ref(true);
+const visibleProjectsCount = ref(9); // Показываем первые 9 проектов
 
 // Фильтры
 const searchQuery = ref('');
@@ -44,6 +44,14 @@ const selectedType = ref('all');
 const selectedGroup = ref('all');
 const selectedSpecialty = ref('all');
 const sortBy = ref('date');
+
+// Функция для получения URL изображения
+const getImageUrl = (image: string): string => {
+  if (image && image !== 'https://via.placeholder.com/800x500?text=Project') {
+    return image;
+  }
+  return '/logo.png'; // Дефолтное изображение из public
+};
 
 // Загрузка проектов из Firestore
 const loadProjects = async () => {
@@ -76,14 +84,12 @@ const loadProjects = async () => {
 
       // Добавляем только проекты студентов
       if (author && author.role === 'student') {
-        // Обработка даты создания - БЕЗОПАСНАЯ версия
         let createdAtDate: Date;
-        
+
         try {
           if (data.createdAt && typeof data.createdAt.toDate === 'function') {
             createdAtDate = data.createdAt.toDate();
           } else if (data.createdAt && data.createdAt.seconds) {
-            // Если это Firebase Timestamp объект
             createdAtDate = new Date(data.createdAt.seconds * 1000);
           } else if (data.createdAt) {
             createdAtDate = new Date(data.createdAt);
@@ -109,7 +115,7 @@ const loadProjects = async () => {
           rating: data.rating || 0,
           tags: data.tags || [],
           description: data.description || '',
-          coverImage: data.coverImage || 'https://via.placeholder.com/800x500?text=Project',
+          coverImage: data.coverImage || data.images?.[0] || '',
           images: data.images || [],
           createdAt: createdAtDate
         });
@@ -127,17 +133,17 @@ const loadProjects = async () => {
 // Получение уникальных значений для фильтров
 const projectTypes = computed(() => {
   const types = new Set(projects.value.map(p => p.type));
-  return ['all', ...types].filter(type => type && type !== 'Не указан');
+  return [...types].filter(type => type && type !== 'Не указан' && type !== 'all');
 });
 
 const projectGroups = computed(() => {
   const groups = new Set(projects.value.map(p => p.group));
-  return ['all', ...groups].filter(group => group && group !== 'Не указана');
+  return [...groups].filter(group => group && group !== 'Не указана' && group !== 'all');
 });
 
 const projectSpecialties = computed(() => {
   const specialties = new Set(projects.value.map(p => p.specialty));
-  return ['all', ...specialties].filter(specialty => specialty && specialty !== 'Не указана');
+  return [...specialties].filter(specialty => specialty && specialty !== 'Не указана' && specialty !== 'all');
 });
 
 // Фильтрация и сортировка проектов
@@ -180,6 +186,26 @@ const filteredProjects = computed(() => {
   }
 
   return result;
+});
+
+// Проекты для отображения (с ограничением по количеству)
+const visibleProjects = computed(() => {
+  return filteredProjects.value.slice(0, visibleProjectsCount.value);
+});
+
+// Есть ли еще проекты для загрузки
+const hasMoreProjects = computed(() => {
+  return visibleProjectsCount.value < filteredProjects.value.length;
+});
+
+// Показать еще проекты
+const showMoreProjects = () => {
+  visibleProjectsCount.value += 9;
+};
+
+// Сброс счетчика при изменении фильтров
+watch([searchQuery, selectedType, selectedGroup, selectedSpecialty], () => {
+  visibleProjectsCount.value = 9;
 });
 
 onMounted(() => {
@@ -252,44 +278,56 @@ onMounted(() => {
         <div class="loading-spinner"></div>
       </div>
 
-      <div v-else-if="filteredProjects.length > 0" class="projects-grid">
-        <div v-for="projectItem in filteredProjects" :key="projectItem.id" class="project-card">
-          <router-link :to="`/project/${projectItem.id}`" class="project-link">
-            <div class="project-image-container">
-              <img :src="projectItem.coverImage" :alt="projectItem.title" class="project-image">
-              <div class="project-overlay">
-                <span class="project-rating">
-                  <i class="fas fa-star"></i> {{ projectItem.rating.toFixed(1) }}
-                </span>
-                <span class="project-views">
-                  <i class="fas fa-eye"></i> {{ projectItem.views }}
-                </span>
+      <div v-else-if="filteredProjects.length > 0" class="projects-content">
+        <div class="projects-grid">
+          <div v-for="projectItem in visibleProjects" :key="projectItem.id" class="project-card">
+            <router-link :to="`/project/${projectItem.id}`" class="project-link">
+              <div class="project-image-container">
+                <img :src="getImageUrl(projectItem.coverImage)" :alt="projectItem.title" class="project-image">
+                <div class="project-overlay">
+                  <span class="project-rating">
+                    <i class="fas fa-star"></i> {{ projectItem.rating.toFixed(1) }}
+                  </span>
+                  <span class="project-views">
+                    <i class="fas fa-eye"></i> {{ projectItem.views }}
+                  </span>
+                </div>
               </div>
-            </div>
-            <div class="project-info">
-              <h3 class="project-title">{{ projectItem.title }}</h3>
-              <p class="project-type">{{ projectItem.type }}</p>
-              <div class="project-meta">
-                <span class="meta-item">
-                  <i class="fas fa-user"></i> {{ projectItem.authorName }} {{ projectItem.authorLname }}
-                </span>
-                <span class="meta-item">
-                  <i class="fas fa-users"></i> {{ projectItem.group }}
-                </span>
-                <span class="meta-item">
-                  <i class="fas fa-graduation-cap"></i> {{ projectItem.specialty }}
-                </span>
-                <span class="meta-item">
-                  <i class="fas fa-calendar-alt"></i> {{ projectItem.date }}
-                </span>
+              <div class="project-info">
+                <h3 class="project-title">{{ projectItem.title }}</h3>
+                <p class="project-type">{{ projectItem.type }}</p>
+                <div class="project-meta">
+                  <span class="meta-item">
+                    <i class="fas fa-user"></i> {{ projectItem.authorName }} {{ projectItem.authorLname }}
+                  </span>
+                  <span class="meta-item">
+                    <i class="fas fa-users"></i> {{ projectItem.group }}
+                  </span>
+                  <span class="meta-item">
+                    <i class="fas fa-graduation-cap"></i> {{ projectItem.specialty }}
+                  </span>
+                  <span class="meta-item">
+                    <i class="fas fa-calendar-alt"></i> {{ projectItem.date }}
+                  </span>
+                </div>
+                <div class="project-tags">
+                  <span v-for="tag in projectItem.tags" :key="tag" class="tag">
+                    {{ tag }}
+                  </span>
+                </div>
               </div>
-              <div class="project-tags">
-                <span v-for="tag in projectItem.tags" :key="tag" class="tag">
-                  {{ tag }}
-                </span>
-              </div>
-            </div>
-          </router-link>
+            </router-link>
+          </div>
+        </div>
+
+        <!-- Кнопка "Показать еще" -->
+        <div v-if="hasMoreProjects" class="load-more-container">
+          <button @click="showMoreProjects" class="load-more-button">
+            <i class="fas fa-chevron-down"></i>
+            Показать еще
+            <span class="projects-count">({{ filteredProjects.length - visibleProjectsCount }} из {{
+              filteredProjects.length }})</span>
+          </button>
         </div>
       </div>
 
@@ -298,9 +336,9 @@ onMounted(() => {
         <p>Проекты не найдены</p>
         <button @click="
           searchQuery = '';
-          selectedType = 'all';
-          selectedGroup = 'all';
-          selectedSpecialty = 'all';
+        selectedType = 'all';
+        selectedGroup = 'all';
+        selectedSpecialty = 'all';
         " class="reset-filters">
           Сбросить фильтры
         </button>
