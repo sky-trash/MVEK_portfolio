@@ -14,6 +14,7 @@ interface Teacher {
   groups: string[];
   subjects: string[];
   avatar: string;
+  avatarBase64?: string; // Добавляем поле для base64 аватарки
   bio: string;
   email: string;
   phone: string;
@@ -27,6 +28,18 @@ interface Teacher {
 
 const teachers = ref<Teacher[]>([]);
 
+// Функция для получения URL аватарки
+const getAvatarUrl = (teacher: Teacher): string => {
+  // Приоритет: base64 → avatar → дефолтная аватарка
+  if (teacher.avatarBase64) {
+    return teacher.avatarBase64;
+  }
+  if (teacher.avatar && teacher.avatar !== 'https://via.placeholder.com/300x300?text=Teacher') {
+    return teacher.avatar;
+  }
+  return '/logo.png'; // Дефолтная аватарка из public
+};
+
 // Фильтры
 const searchQuery = ref('');
 const selectedDepartment = ref('all');
@@ -36,7 +49,7 @@ const sortBy = ref('name');
 // Функция для правильного склонения слова "год"
 const getExperienceText = (experience: string | number): string => {
   const exp = typeof experience === 'string' ? parseInt(experience) || 0 : experience;
-  
+
   if (exp === 1) {
     return 'год';
   } else if (exp >= 2 && exp <= 4) {
@@ -50,19 +63,19 @@ const getExperienceText = (experience: string | number): string => {
 const fetchTeachers = async () => {
   try {
     isLoading.value = true;
-    
+
     // Запрос к коллекции users с фильтрацией по роли teacher
     const usersQuery = query(
       collection(db, 'users'),
       where('role', '==', 'teacher')
     );
-    
+
     const querySnapshot = await getDocs(usersQuery);
     const teachersData: Teacher[] = [];
-    
+
     querySnapshot.forEach((doc) => {
       const userData = doc.data();
-      
+
       // Преобразуем subjects в массив, если это строка
       let subjectsArray: string[] = [];
       if (Array.isArray(userData.subjects)) {
@@ -77,7 +90,7 @@ const fetchTeachers = async () => {
           subjectsArray = [userData.specialization];
         }
       }
-      
+
       // Преобразование данных из Firestore в формат Teacher
       const teacher: Teacher = {
         id: doc.id,
@@ -87,7 +100,8 @@ const fetchTeachers = async () => {
         experience: userData.experience || '0',
         groups: userData.groups || [],
         subjects: subjectsArray,
-        avatar: userData.avatarUrl || `https://via.placeholder.com/300x300?text=Teacher`,
+        avatar: userData.avatarUrl || '',
+        avatarBase64: userData.avatarBase64 || '', // Добавляем base64 аватарку
         bio: userData.bio || 'Информация о преподавателе',
         email: userData.email || '',
         phone: userData.phone || '+7 (XXX) XXX-XX-XX',
@@ -98,10 +112,10 @@ const fetchTeachers = async () => {
           dribbble: userData.socialLinks?.dribbble || ''
         }
       };
-      
+
       teachersData.push(teacher);
     });
-    
+
     teachers.value = teachersData;
   } catch (error) {
     console.error('Ошибка при загрузке преподавателей:', error);
@@ -119,43 +133,43 @@ const departments = computed(() => {
 const subjects = computed(() => {
   // Получаем все предметы/специализации из профилей преподавателей
   const allSubjects = teachers.value.flatMap(t => t.subjects);
-  
+
   // Фильтруем пустые значения, дубликаты и сортируем по алфавиту
   const uniqueSubjects = [...new Set(allSubjects)]
     .filter(subj => subj && subj.trim() !== '')
     .sort((a, b) => a.localeCompare(b));
-  
+
   return uniqueSubjects;
 });
 
 // Фильтрация и сортировка преподавателей
 const filteredTeachers = computed(() => {
   let result = [...teachers.value];
-  
+
   // Фильтрация по поиску
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
-    result = result.filter(t => 
-      t.name.toLowerCase().includes(query) || 
+    result = result.filter(t =>
+      t.name.toLowerCase().includes(query) ||
       t.position.toLowerCase().includes(query) ||
       (t.subjects && t.subjects.some(s => s.toLowerCase().includes(query)))
     );
   }
-  
+
   // Фильтрация по кафедре
   if (selectedDepartment.value !== 'all') {
     result = result.filter(t => t.department === selectedDepartment.value);
   }
-  
+
   // Фильтрация по предмету/специализации
   if (selectedSubject.value !== 'all') {
-    result = result.filter(t => 
-      t.subjects && t.subjects.some(subject => 
+    result = result.filter(t =>
+      t.subjects && t.subjects.some(subject =>
         subject.toLowerCase().includes(selectedSubject.value.toLowerCase())
       )
     );
   }
-  
+
   // Сортировка
   if (sortBy.value === 'name') {
     result.sort((a, b) => a.name.localeCompare(b.name));
@@ -166,7 +180,7 @@ const filteredTeachers = computed(() => {
       return expB - expA;
     });
   }
-  
+
   return result;
 });
 
@@ -178,7 +192,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <Header/>
+  <Header />
   <main class="teachers-page">
     <div class="container">
       <!-- Заголовок страницы -->
@@ -190,12 +204,7 @@ onMounted(() => {
       <!-- Фильтры и сортировка -->
       <div class="teachers-filters">
         <div class="search-box">
-          <input 
-            v-model="searchQuery"
-            type="text" 
-            placeholder="Поиск преподавателей..."
-            class="search-input"
-          >
+          <input v-model="searchQuery" type="text" placeholder="Поиск преподавателей..." class="search-input">
           <i class="fas fa-search"></i>
         </div>
 
@@ -204,11 +213,7 @@ onMounted(() => {
             <label>Кафедра:</label>
             <select v-model="selectedDepartment" class="filter-select">
               <option value="all">Все кафедры</option>
-              <option 
-                v-for="department in departments" 
-                :key="department" 
-                :value="department"
-              >
+              <option v-for="department in departments" :key="department" :value="department">
                 {{ department }}
               </option>
             </select>
@@ -218,11 +223,7 @@ onMounted(() => {
             <label>Специализация:</label>
             <select v-model="selectedSubject" class="filter-select">
               <option value="all">Все специализации</option>
-              <option 
-                v-for="subject in subjects" 
-                :key="subject" 
-                :value="subject"
-              >
+              <option v-for="subject in subjects" :key="subject" :value="subject">
                 {{ subject }}
               </option>
             </select>
@@ -244,14 +245,10 @@ onMounted(() => {
       </div>
 
       <div v-else-if="filteredTeachers.length > 0" class="teachers-grid">
-        <div 
-          v-for="teacher in filteredTeachers" 
-          :key="teacher.id" 
-          class="teacher-card"
-        >
+        <div v-for="teacher in filteredTeachers" :key="teacher.id" class="teacher-card">
           <router-link :to="`/teacherProfile/${teacher.id}`" class="teacher-link">
             <div class="teacher-avatar">
-              <img src="../../../public/logo.png" class="avatar-image">
+              <img :src="getAvatarUrl(teacher)" :alt="teacher.name" class="avatar-image">
             </div>
             <div class="teacher-info">
               <h3 class="teacher-name">{{ teacher.name }}</h3>
@@ -278,36 +275,16 @@ onMounted(() => {
               {{ teacher.email }}
             </a>
             <div class="social-links">
-              <a 
-                v-if="teacher.social.vk" 
-                :href="teacher.social.vk" 
-                target="_blank"
-                class="social-link"
-              >
+              <a v-if="teacher.social.vk" :href="teacher.social.vk" target="_blank" class="social-link">
                 <i class="fab fa-vk"></i>
               </a>
-              <a 
-                v-if="teacher.social.telegram" 
-                :href="teacher.social.telegram" 
-                target="_blank"
-                class="social-link"
-              >
+              <a v-if="teacher.social.telegram" :href="teacher.social.telegram" target="_blank" class="social-link">
                 <i class="fab fa-telegram"></i>
               </a>
-              <a 
-                v-if="teacher.social.behance" 
-                :href="teacher.social.behance" 
-                target="_blank"
-                class="social-link"
-              >
+              <a v-if="teacher.social.behance" :href="teacher.social.behance" target="_blank" class="social-link">
                 <i class="fab fa-behance"></i>
               </a>
-              <a 
-                v-if="teacher.social.dribbble" 
-                :href="teacher.social.dribbble" 
-                target="_blank"
-                class="social-link"
-              >
+              <a v-if="teacher.social.dribbble" :href="teacher.social.dribbble" target="_blank" class="social-link">
                 <i class="fab fa-dribbble"></i>
               </a>
             </div>
@@ -318,20 +295,17 @@ onMounted(() => {
       <div v-else class="empty-state">
         <i class="fas fa-user-graduate"></i>
         <p>Преподаватели не найдены</p>
-        <button 
-          @click="
-            searchQuery = '';
-            selectedDepartment = 'all';
-            selectedSubject = 'all';
-          " 
-          class="reset-filters"
-        >
+        <button @click="
+          searchQuery = '';
+        selectedDepartment = 'all';
+        selectedSubject = 'all';
+        " class="reset-filters">
           Сбросить фильтры
         </button>
       </div>
     </div>
   </main>
-  <Footer/>
+  <Footer />
 </template>
 <style scoped>
 @import "./teacher.scss";

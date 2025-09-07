@@ -15,7 +15,6 @@ const route = useRoute();
 const router = useRouter();
 const userId = ref(route.params.id || '');
 
-
 const profileData = ref({
   id: '',
   avatar: '@/public/logo.png',
@@ -50,7 +49,6 @@ const isUploadingAvatar = ref(false);
 const isBioExpanded = ref(false);
 const expandedProjects = ref<Set<string>>(new Set());
 
-
 const newProject = ref({
   title: '',
   type: '',
@@ -67,11 +65,16 @@ const isFormValid = computed(() => {
   return newProject.value.title.trim() !== '' &&
     newProject.value.type.trim() !== '' &&
     newProject.value.description.trim() !== '' &&
-    newProject.value.images.length > 0; 
+    newProject.value.images.length > 0;
 });
 
 const loadSpecialties = async () => {
   try {
+    if (!auth.currentUser) {
+      console.error('Пользователь не аутентифицирован');
+      return;
+    }
+
     const specialtiesSnapshot = await getDocs(collection(db, 'specialties'));
     specialtiesList.value = specialtiesSnapshot.docs.map(doc => doc.data().name);
   } catch (error) {
@@ -81,24 +84,20 @@ const loadSpecialties = async () => {
 
 const findUserDocument = async (identifier: string) => {
   try {
-    // Прямой поиск по ID документа
     if (!identifier.includes('/')) {
       const docRef = doc(db, 'users', identifier);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) return { doc: docSnap, id: docSnap.id };
     }
 
-    // Поиск по userId
     const q1 = query(collection(db, 'users'), where('userId', '==', identifier));
     const querySnapshot1 = await getDocs(q1);
     if (!querySnapshot1.empty) return { doc: querySnapshot1.docs[0], id: querySnapshot1.docs[0].id };
 
-    // Поиск по email
     const q2 = query(collection(db, 'users'), where('email', '==', identifier));
     const querySnapshot2 = await getDocs(q2);
     if (!querySnapshot2.empty) return { doc: querySnapshot2.docs[0], id: querySnapshot2.docs[0].id };
 
-    // Поиск по login
     const q3 = query(collection(db, 'users'), where('login', '==', identifier));
     const querySnapshot3 = await getDocs(q3);
     if (!querySnapshot3.empty) return { doc: querySnapshot3.docs[0], id: querySnapshot3.docs[0].id };
@@ -110,7 +109,6 @@ const findUserDocument = async (identifier: string) => {
   }
 };
 
-// Загрузка данных профиля
 const loadProfileData = async () => {
   try {
     isLoading.value = true;
@@ -158,7 +156,6 @@ const loadProfileData = async () => {
   }
 };
 
-// Загрузка проектов пользователя
 const loadUserProjects = async (projectIds: string[]) => {
   try {
     if (projectIds.length === 0) {
@@ -184,14 +181,12 @@ const loadUserProjects = async (projectIds: string[]) => {
   }
 };
 
-// ЗАГРУЗКА АВАТАРА
 const handleAvatarUpload = (event: Event) => {
   const target = event.target as HTMLInputElement;
   if (!target.files || !target.files[0]) return;
 
   const file = target.files[0];
 
-  // Валидация файла
   if (!file.type.match('image.*')) {
     errorMessage.value = 'Пожалуйста, выберите изображение (JPEG, PNG, GIF, JPG)';
     return;
@@ -208,18 +203,16 @@ const handleAvatarUpload = (event: Event) => {
       isUploadingAvatar.value = true;
       errorMessage.value = '';
 
-      // Сохраняем изображение как base64
       const imageData = e.target?.result as string;
 
-      // Обновляем данные пользователя в Firestore
       const userRef = doc(db, 'users', profileData.value.id);
       await updateDoc(userRef, {
         avatarBase64: imageData,
         updatedAt: new Date().toISOString()
       });
 
-      // Просто перезагружаем страницу
-      window.location.reload();
+      // Обновляем локально
+      profileData.value.avatar = imageData;
 
     } catch (error) {
       console.error('Ошибка загрузки аватара:', error);
@@ -231,20 +224,18 @@ const handleAvatarUpload = (event: Event) => {
   reader.readAsDataURL(file);
 };
 
-// УДАЛЕНИЕ АВАТАРА
 const removeAvatar = async () => {
   if (!confirm('Удалить аватар?')) return;
 
   try {
-    // Обновляем данные пользователя
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
       avatarBase64: null,
       updatedAt: new Date().toISOString()
     });
 
-    // Просто перезагружаем страницу
-    window.location.reload();
+    // Обновляем локально
+    profileData.value.avatar = '@/public/logo.png';
 
   } catch (error) {
     console.error('Ошибка удаления аватара:', error);
@@ -252,7 +243,6 @@ const removeAvatar = async () => {
   }
 };
 
-// Редактирование профиля
 const startEditing = () => {
   editedBio.value = profileData.value.bio;
   isEditing.value = true;
@@ -261,16 +251,20 @@ const startEditing = () => {
 
 const saveProfile = async () => {
   try {
+    if (!auth.currentUser) {
+      errorMessage.value = 'Необходимо авторизоваться';
+      return;
+    }
+
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
       bio: editedBio.value,
       updatedAt: new Date().toISOString()
     });
 
+    profileData.value.bio = editedBio.value;
+    isEditing.value = false;
     isBioExpanded.value = false;
-
-    // Просто перезагружаем страницу
-    window.location.reload();
 
   } catch (error) {
     console.error('Ошибка сохранения профиля:', error);
@@ -278,19 +272,24 @@ const saveProfile = async () => {
   }
 };
 
-// Управление навыками
 const addSkill = async () => {
   if (!newSkill.value.trim()) return;
 
   try {
+    if (!auth.currentUser) {
+      errorMessage.value = 'Необходимо авторизоваться';
+      return;
+    }
+
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
       skills: arrayUnion(newSkill.value.trim()),
       updatedAt: new Date().toISOString()
     });
 
-    // Просто перезагружаем страницу
-    window.location.reload();
+    // Обновляем локально
+    profileData.value.skills.push(newSkill.value.trim());
+    newSkill.value = '';
 
   } catch (error) {
     console.error('Ошибка добавления навыка:', error);
@@ -300,31 +299,40 @@ const addSkill = async () => {
 
 const removeSkill = async (skill: string) => {
   try {
+    if (!auth.currentUser) {
+      errorMessage.value = 'Необходимо авторизоваться';
+      return;
+    }
+
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
       skills: arrayRemove(skill),
       updatedAt: new Date().toISOString()
     });
 
-    window.location.reload();
+    // Обновляем локально
+    profileData.value.skills = profileData.value.skills.filter(s => s !== skill);
 
   } catch (error) {
     console.error('Ошибка удаления навыка:', error);
-    errorMessage.value = 'Ошибка при удалении навыка';
+    errorMessage.value = 'Ошибка при удаления навыка';
   }
 };
 
-// Обновление контактов
 const updateContacts = async () => {
   try {
+    if (!auth.currentUser) {
+      errorMessage.value = 'Необходимо авторизоваться';
+      return;
+    }
+
     const userRef = doc(db, 'users', profileData.value.id);
     await updateDoc(userRef, {
       socialLinks: profileData.value.socialLinks,
       updatedAt: new Date().toISOString()
     });
 
-    // Просто перезагружаем страницу
-    window.location.reload();
+    alert('Контакты успешно обновлены!');
 
   } catch (error) {
     console.error('Ошибка обновления контактов:', error);
@@ -332,7 +340,6 @@ const updateContacts = async () => {
   }
 };
 
-// Добавление проекта
 const handleProjectFiles = (event: Event) => {
   const target = event.target as HTMLInputElement;
   if (target.files && target.files.length > 0) {
@@ -381,8 +388,16 @@ const addProject = async () => {
       updatedAt: new Date().toISOString()
     });
 
-    // Просто перезагружаем страницу
-    window.location.reload();
+    // Обновляем локально
+    userProjects.value.push({ id: projectRef.id, ...projectData });
+    isAddingProject.value = false;
+    newProject.value = {
+      title: '',
+      type: '',
+      description: '',
+      date: new Date().toISOString().split('T')[0],
+      images: []
+    };
 
   } catch (error) {
     console.error('Ошибка добавления проекта:', error);
@@ -392,7 +407,6 @@ const addProject = async () => {
   }
 };
 
-// Отмена добавления проекта
 const cancelAddProject = () => {
   isAddingProject.value = false;
   newProject.value = {
@@ -405,7 +419,6 @@ const cancelAddProject = () => {
   errorMessage.value = '';
 };
 
-// Удаление проекта
 const removeProject = async (projectId: string) => {
   if (!confirm('Вы уверены, что хотите удалить этот проект?')) {
     return;
@@ -420,8 +433,8 @@ const removeProject = async (projectId: string) => {
       updatedAt: new Date().toISOString()
     });
 
-    // Просто перезагружаем страницу
-    window.location.reload();
+    // Обновляем локально
+    userProjects.value = userProjects.value.filter(project => project.id !== projectId);
 
   } catch (error) {
     console.error('Ошибка удаления проекта:', error);
@@ -429,7 +442,6 @@ const removeProject = async (projectId: string) => {
   }
 };
 
-// Управление развертыванием описания проектов
 const toggleProjectDescription = (projectId: string) => {
   if (expandedProjects.value.has(projectId)) {
     expandedProjects.value.delete(projectId);
@@ -442,17 +454,14 @@ const isProjectExpanded = (projectId: string) => {
   return expandedProjects.value.has(projectId);
 };
 
-// Переход на детальную страницу проекта
 const goToProjectDetail = (projectId: string) => {
   router.push(`/project/${projectId}`);
 };
 
-// Редактирование профиля (переход на страницу редактирования)
 const editProfile = () => {
   router.push('/profile/edit');
 };
 
-// Инициализация
 onMounted(() => {
   loadSpecialties();
   onAuthStateChanged(auth, (user) => {

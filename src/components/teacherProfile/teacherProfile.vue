@@ -269,8 +269,10 @@ const handleAvatarUpload = (event: Event) => {
         updatedAt: new Date().toISOString()
       });
 
-      // Просто перезагружаем страницу
-      window.location.reload();
+      // Обновляем локально
+      if (teacher.value) {
+        teacher.value.avatar = imageData;
+      }
 
     } catch (error) {
       console.error('Ошибка загрузки аватара:', error);
@@ -294,8 +296,10 @@ const removeAvatar = async () => {
       updatedAt: new Date().toISOString()
     });
 
-    // Просто перезагружаем страницу
-    window.location.reload();
+    // Обновляем локально
+    if (teacher.value) {
+      teacher.value.avatar = '@/public/logo.png';
+    }
 
   } catch (error) {
     console.error('Ошибка удаления аватара:', error);
@@ -312,14 +316,24 @@ const startEditing = () => {
 
 const saveProfile = async () => {
   try {
+    if (!auth.currentUser) {
+      errorMessage.value = 'Необходимо авторизоваться';
+      return;
+    }
+
     const userRef = doc(db, 'users', teacher.value!.id);
     await updateDoc(userRef, {
       bio: editedBio.value,
       updatedAt: new Date().toISOString()
     });
 
-    // Просто перезагружаем страницу
-    window.location.reload();
+    // Обновляем локально
+    if (teacher.value) {
+      teacher.value.bio = editedBio.value;
+    }
+    
+    isEditing.value = false;
+    isBioExpanded.value = false;
 
   } catch (error) {
     console.error('Ошибка сохранения профиля:', error);
@@ -412,13 +426,6 @@ const editProfile = () => {
             </button>
           </div>
           <p class="teacher-position">{{ teacher.position }}</p>
-
-          <div class="rating-container">
-            <div class="stars">
-              <span v-for="n in 5" :key="n" :class="['star', { 'filled': n <= starRating }]">★</span>
-            </div>
-            <span class="rating-value">{{ formattedRating }}</span>
-          </div>
         </div>
       </div>
 

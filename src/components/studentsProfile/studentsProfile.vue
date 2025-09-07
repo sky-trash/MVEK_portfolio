@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   doc, getDoc, collection, query, where, getDocs,
@@ -14,6 +14,14 @@ import { onAuthStateChanged } from 'firebase/auth';
 const route = useRoute();
 const router = useRouter();
 const userId = ref(route.params.id || '');
+
+// Функция для получения URL аватарки
+const getAvatarUrl = (avatar: string): string => {
+  if (avatar && avatar !== '/placeholder-avatar.png' && avatar !== '@/public/logo.png') {
+    return avatar;
+  }
+  return '/logo.png';
+};
 
 // Данные профиля
 const profileData = ref({
@@ -41,33 +49,23 @@ const specialtiesList = ref<string[]>([]); // Список специально�
 // Состояния
 const isLoading = ref(true);
 const activeTab = ref('projects');
-const isEditing = ref(false);
-const editedBio = ref('');
-const newSkill = ref('');
 const currentUserId = ref('');
 const errorMessage = ref('');
-const isAddingProject = ref(false);
-const isSavingProject = ref(false);
+const isBioExpanded = ref(false);
+const maxBioLength = 100; // Максимальная длина текста в свернутом состоянии
 
-// Данные для нового проекта
-const newProject = ref({
-  title: '',
-  type: '',
-  description: '',
-  date: new Date().toISOString().split('T')[0],
-  images: [] as string[]
+const truncatedBio = computed(() => {
+  return profileData.value.bio.slice(0, maxBioLength) +
+    (profileData.value.bio.length > maxBioLength ? '...' : '');
+});
+
+const shouldShowReadMore = computed(() => {
+  return profileData.value.bio.length > maxBioLength;
 });
 
 // Проверка, является ли текущий пользователь владельцем профиля
 const isOwnProfile = computed(() => {
   return !userId.value || userId.value === currentUserId.value;
-});
-
-// Проверка валидности формы
-const isFormValid = computed(() => {
-  return newProject.value.title.trim() !== '' &&
-    newProject.value.type.trim() !== '' &&
-    newProject.value.description.trim() !== '';
 });
 
 // Загрузка специальностей из Firestore
@@ -130,7 +128,7 @@ const loadProfileData = async () => {
 
       profileData.value = {
         id: userData.id,
-        avatar: data.avatarUrl || '/placeholder-avatar.png',
+        avatar: data.avatarUrl || data.avatarBase64 || '/placeholder-avatar.png',
         nickname: data.login || '',
         fullName: [data.surname, data.name, data.lname].filter(Boolean).join(' ') || 'Не указано',
         group: data.group || 'Не указана',
@@ -184,180 +182,6 @@ const loadUserProjects = async (projectIds: string[]) => {
   }
 };
 
-// Редактирование профиля
-const startEditing = () => {
-  editedBio.value = profileData.value.bio;
-  isEditing.value = true;
-};
-
-const saveProfile = async () => {
-  try {
-    const userRef = doc(db, 'users', profileData.value.id);
-    await updateDoc(userRef, {
-      bio: editedBio.value
-    });
-
-    profileData.value.bio = editedBio.value;
-    isEditing.value = false;
-  } catch (error) {
-    console.error('Ошибка сохранения профиля:', error);
-    errorMessage.value = 'Ошибка при сохранении данных';
-  }
-};
-
-// Управление навыками
-const addSkill = async () => {
-  if (!newSkill.value.trim()) return;
-
-  try {
-    const userRef = doc(db, 'users', profileData.value.id);
-    await updateDoc(userRef, {
-      skills: arrayUnion(newSkill.value.trim())
-    });
-
-    profileData.value.skills.push(newSkill.value.trim());
-    newSkill.value = '';
-  } catch (error) {
-    console.error('Ошибка добавления навыка:', error);
-    errorMessage.value = 'Ошибка при добавлении навыка';
-  }
-};
-
-const removeSkill = async (skill: string) => {
-  try {
-    const userRef = doc(db, 'users', profileData.value.id);
-    await updateDoc(userRef, {
-      skills: arrayRemove(skill)
-    });
-
-    profileData.value.skills = profileData.value.skills.filter(s => s !== skill);
-  } catch (error) {
-    console.error('Ошибка удаления навыка:', error);
-    errorMessage.value = 'Ошибка при удалении навыка';
-  }
-};
-
-// Обновление контактов
-const updateContacts = async () => {
-  try {
-    const userRef = doc(db, 'users', profileData.value.id);
-    await updateDoc(userRef, {
-      socialLinks: profileData.value.socialLinks
-    });
-  } catch (error) {
-    console.error('Ошибка обновления контактов:', error);
-    errorMessage.value = 'Ошибка при обновлении контактов';
-  }
-};
-
-// Добавление проекта в коллекцию projects
-const handleProjectFiles = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  if (target.files && target.files.length > 0) {
-    const files = Array.from(target.files);
-    const maxFiles = 10;
-    const filesToProcess = files.slice(0, maxFiles);
-
-    filesToProcess.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        newProject.value.images.push(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-};
-
-const addProject = async () => {
-  if (!isFormValid.value) return;
-
-  try {
-    isSavingProject.value = true;
-    errorMessage.value = '';
-
-    const projectData = {
-      title: newProject.value.title.trim(),
-      type: newProject.value.type.trim(),
-      description: newProject.value.description.trim(),
-      date: newProject.value.date,
-      images: newProject.value.images.length > 0 ? newProject.value.images : ['/placeholder-project.png'],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      authorId: profileData.value.id,
-      authorName: profileData.value.fullName,
-      rating: 0,
-      views: 0,
-      likes: 0,
-      comments: []
-    };
-
-    const projectRef = await addDoc(collection(db, 'projects'), projectData);
-
-    const userRef = doc(db, 'users', profileData.value.id);
-    await updateDoc(userRef, {
-      projectIds: arrayUnion(projectRef.id)
-    });
-
-    profileData.value.projectIds.push(projectRef.id);
-    userProjects.value.unshift({
-      id: projectRef.id,
-      ...projectData
-    });
-
-    newProject.value = {
-      title: '',
-      type: '',
-      description: '',
-      date: new Date().toISOString().split('T')[0],
-      images: []
-    };
-
-    isAddingProject.value = false;
-
-  } catch (error) {
-    console.error('Ошибка добавления проекта:', error);
-    errorMessage.value = 'Ошибка при добавлении проекта';
-  } finally {
-    isSavingProject.value = false;
-  }
-};
-
-// Функция для отмены добавления проекта
-const cancelAddProject = () => {
-  isAddingProject.value = false;
-  newProject.value = {
-    title: '',
-    type: '',
-    description: '',
-    date: new Date().toISOString().split('T')[0],
-    images: []
-  };
-  errorMessage.value = '';
-};
-
-// Удаление проекта
-const removeProject = async (projectId: string) => {
-  if (!confirm('Вы уверены, что хотите удалить этот проект?')) {
-    return;
-  }
-
-  try {
-    await deleteDoc(doc(db, 'projects', projectId));
-
-    const userRef = doc(db, 'users', profileData.value.id);
-    await updateDoc(userRef, {
-      projectIds: arrayRemove(projectId)
-    });
-
-    profileData.value.projectIds = profileData.value.projectIds.filter(id => id !== projectId);
-    userProjects.value = userProjects.value.filter(project => project.id !== projectId);
-
-  } catch (error) {
-    console.error('Ошибка удаления проекта:', error);
-    errorMessage.value = 'Ошибка при удалении проекта';
-  }
-};
-
 // Переход на детальную страницу проекта
 const goToProjectDetail = (projectId: string) => {
   router.push(`/project/${projectId}`);
@@ -373,9 +197,6 @@ onMounted(() => {
     loadProfileData();
   });
 });
-const editProfile = () => {
-  router.push('/profile/edit');
-};
 </script>
 
 <template>
@@ -394,16 +215,13 @@ const editProfile = () => {
       <div class="profile-header">
         <div class="container">
           <div class="profile-avatar">
-            <img src="../../../public/logo.png" class="avatar-image">
+            <img :src="getAvatarUrl(profileData.avatar)" :alt="profileData.fullName" class="avatar-image">
             <div class="avatar-badge">Студент</div>
           </div>
 
           <div class="profile-info">
             <div class="name-and-actions">
               <h1 class="profile-name">{{ profileData.fullName }}</h1>
-              <button v-if="isOwnProfile" @click="editProfile" class="edit-profile-button">
-                <i class="fas fa-edit"></i> Редактировать профиль
-              </button>
             </div>
             <p class="profile-nickname">@{{ profileData.nickname }}</p>
 
@@ -424,18 +242,13 @@ const editProfile = () => {
           <div class="profile-sidebar">
             <div class="profile-section">
               <h3 class="section-title">О себе</h3>
-              <div v-if="!isEditing" class="profile-bio">
-                <p>{{ profileData.bio }}</p>
-                <button v-if="isOwnProfile" @click="startEditing" class="edit-button">
-                  <i class="fas fa-edit"></i> Редактировать
+              <div class="profile-bio">
+                <p>
+                  {{ isBioExpanded ? profileData.bio : truncatedBio }}
+                </p>
+                <button v-if="shouldShowReadMore" @click="isBioExpanded = !isBioExpanded" class="read-more-button">
+                  {{ isBioExpanded ? 'Свернуть' : 'Читать далее' }}
                 </button>
-              </div>
-              <div v-else class="profile-bio-edit">
-                <textarea v-model="editedBio" class="bio-textarea"></textarea>
-                <div class="edit-actions">
-                  <button @click="saveProfile" class="save-button">Сохранить</button>
-                  <button @click="isEditing = false" class="cancel-button">Отмена</button>
-                </div>
               </div>
             </div>
 
@@ -444,16 +257,7 @@ const editProfile = () => {
               <div class="skills-list">
                 <span v-for="(skill, index) in profileData.skills" :key="index" class="skill-tag">
                   {{ skill }}
-                  <button v-if="isOwnProfile" @click="removeSkill(skill)" class="skill-remove">
-                    <i class="fas fa-times">X</i>
-                  </button>
                 </span>
-                <div v-if="isOwnProfile" class="add-skill-form">
-                  <input v-model="newSkill" type="text" placeholder="Новый навык" class="skill-input">
-                  <button @click="addSkill" class="add-skill-button">
-                    <i class="fas fa-plus"></i> Добавить
-                  </button>
-                </div>
                 <p v-if="!profileData.skills.length">Навыки не указаны</p>
               </div>
             </div>
@@ -467,32 +271,24 @@ const editProfile = () => {
                 </li>
                 <li>
                   <i class="fab fa-behance">💿</i>
-                  <input v-if="isOwnProfile" v-model="profileData.socialLinks.behance" placeholder="Ссылка на Behance"
-                    class="contact-input" @blur="updateContacts">
-                  <a v-else :href="profileData.socialLinks.behance" target="_blank"
-                    v-show="profileData.socialLinks.behance">
+                  <a v-if="profileData.socialLinks.behance" :href="profileData.socialLinks.behance" target="_blank">
                     Behance
                   </a>
-                  <span v-if="!isOwnProfile && !profileData.socialLinks.behance">Не указано</span>
+                  <span v-else>Не указано</span>
                 </li>
                 <li>
                   <i class="fab fa-dribbble">💿</i>
-                  <input v-if="isOwnProfile" v-model="profileData.socialLinks.dribbble" placeholder="Ссылка на Dribbble"
-                    class="contact-input" @blur="updateContacts">
-                  <a v-else :href="profileData.socialLinks.dribbble" target="_blank"
-                    v-show="profileData.socialLinks.dribbble">
+                  <a v-if="profileData.socialLinks.dribbble" :href="profileData.socialLinks.dribbble" target="_blank">
                     Dribbble
                   </a>
-                  <span v-if="!isOwnProfile && !profileData.socialLinks.dribbble">Не указано</span>
+                  <span v-else>Не указано</span>
                 </li>
                 <li>
                   <i class="fab fa-vk">✌️</i>
-                  <input v-if="isOwnProfile" v-model="profileData.socialLinks.vk" placeholder="Ссылка на VK"
-                    class="contact-input" @blur="updateContacts">
-                  <a v-else :href="profileData.socialLinks.vk" target="_blank" v-show="profileData.socialLinks.vk">
+                  <a v-if="profileData.socialLinks.vk" :href="profileData.socialLinks.vk" target="_blank">
                     ВКонтакте
                   </a>
-                  <span v-if="!isOwnProfile && !profileData.socialLinks.vk">Не указано</span>
+                  <span v-else>Не указано</span>
                 </li>
               </ul>
             </div>
@@ -512,72 +308,6 @@ const editProfile = () => {
                 class="tab-button">
                 Активность
               </button>
-              <button v-if="isOwnProfile" @click="isAddingProject = !isAddingProject" class="add-project-button"
-                :style="{ backgroundColor: isAddingProject ? '#2c5282' : '#3182ce' }">
-                <i class="fas fa-plus"></i>
-                {{ isAddingProject ? 'Отменить' : 'Добавить проект' }}
-              </button>
-            </div>
-
-            <!-- Форма добавления проекта -->
-            <div v-if="isAddingProject" class="add-project-form">
-              <h3>Добавить новый проект</h3>
-              <div class="form-group">
-                <label>Название проекта <span class="required">*</span></label>
-                <input v-model="newProject.title" type="text" class="form-input" placeholder="Введите название проекта">
-                <small v-if="!newProject.title.trim()" class="error-text">Это поле обязательно</small>
-              </div>
-
-              <div class="form-group">
-                <label>Тип проекта (специальность) <span class="required">*</span></label>
-                <select v-model="newProject.type" class="form-select">
-                  <option value="">Выберите из списка</option>
-                  <option v-for="specialty in specialtiesList" :key="specialty" :value="specialty">
-                    {{ specialty }}
-                  </option>
-                </select>
-                <small v-if="!newProject.type.trim()" class="error-text">Это поле обязательно</small>
-              </div>
-
-              <div class="form-group">
-                <label>Описание <span class="required">*</span></label>
-                <textarea v-model="newProject.description" class="form-textarea" rows="3"
-                  placeholder="Опишите ваш проект"></textarea>
-                <small v-if="!newProject.description.trim()" class="error-text">Это поле обязательно</small>
-              </div>
-
-              <div class="form-group">
-                <label>Дата</label>
-                <input v-model="newProject.date" type="date" class="form-input">
-              </div>
-
-              <div class="form-group">
-                <label>Изображения проекта (можно выбрать несколько)</label>
-                <input type="file" accept="image/*" multiple @change="handleProjectFiles" class="form-input">
-                <small>Максимум 10 изображений. Изображения будут храниться локально</small>
-              </div>
-
-              <div v-if="newProject.images.length" class="image-previews">
-                <div v-for="(image, index) in newProject.images" :key="index" class="image-preview-item">
-                  <img :src="image" alt="Превью" class="preview-image">
-                  <button @click="newProject.images.splice(index, 1)" class="remove-image-button">
-                    <i class="fas fa-times"></i>
-                  </button>
-                </div>
-              </div>
-
-              <div class="form-actions">
-                <button @click="addProject" class="save-button" :disabled="!isFormValid || isSavingProject" :style="{
-                  backgroundColor: isFormValid ? '#3182ce' : '#a0aec0',
-                  cursor: isFormValid && !isSavingProject ? 'pointer' : 'not-allowed'
-                }">
-                  <i class="fas fa-plus"></i>
-                  {{ isSavingProject ? 'Добавление...' : 'Добавить проект' }}
-                </button>
-                <button @click="cancelAddProject" class="cancel-button">
-                  <i class="fas fa-times"></i> Отмена
-                </button>
-              </div>
             </div>
 
             <div v-if="activeTab === 'projects'" class="projects-grid">
@@ -594,9 +324,6 @@ const editProfile = () => {
                       <i class="fas fa-eye"></i> {{ project.views || 0 }}
                     </span>
                   </div>
-                  <button v-if="isOwnProfile" @click.stop="removeProject(project.id)" class="project-delete-button">
-                    <i class="fas fa-trash">X</i>
-                  </button>
                 </div>
                 <div class="project-info">
                   <h3 class="project-title">{{ project.title || 'Без названия' }}</h3>
@@ -605,12 +332,9 @@ const editProfile = () => {
                   <p class="project-date">{{ new Date(project.date).toLocaleDateString() || 'Дата не указана' }}</p>
                 </div>
               </div>
-              <div v-if="!userProjects.length && !isAddingProject" class="empty-state">
+              <div v-if="!userProjects.length" class="empty-state">
                 <i class="fas fa-folder-open"></i>
                 <p>Проекты не найдены</p>
-                <button v-if="isOwnProfile" @click="isAddingProject = true" class="add-button">
-                  <i class="fas fa-plus"></i> Добавить первый проект
-                </button>
               </div>
             </div>
 
@@ -636,56 +360,4 @@ const editProfile = () => {
 </template>
 <style scoped lang="scss">
 @import "./studentsProfile.scss";
-
-.name-and-actions {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  margin-bottom: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.edit-profile-button {
-  background: rgba(255, 255, 255, 0.2);
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  color: white;
-  padding: 0.75rem 1.5rem;
-  border-radius: 25px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  }
-
-  i {
-    font-size: 0.9rem;
-  }
-}
-
-@media (max-width: 768px) {
-  .name-and-actions {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-
-  .edit-profile-button {
-    order: 2;
-  }
-}
-
-@media (max-width: 480px) {
-  .edit-profile-button {
-    width: 100%;
-    justify-content: center;
-  }
-}
 </style>
