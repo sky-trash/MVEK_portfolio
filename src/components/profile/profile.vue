@@ -10,6 +10,7 @@ import { db, auth } from '@/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import Header from '../layouts/header/header.vue';
 import Footer from '../layouts/footer/footer.vue';
+import Modal from './modal.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -36,6 +37,18 @@ const profileData = ref({
 const userProjects = ref<any[]>([]);
 const specialtiesList = ref<string[]>([]);
 
+const showErrorModal = ref(false);
+const modalTitle = ref('');
+const modalMessage = ref('');
+const modalShowBackButton = ref(false);
+
+const showError = (title: string, message: string, showBack: boolean = true) => {
+  modalTitle.value = title;
+  modalMessage.value = message;
+  modalShowBackButton.value = showBack;
+  showErrorModal.value = true;
+};
+
 const isLoading = ref(true);
 const activeTab = ref('projects');
 const isEditing = ref(false);
@@ -49,6 +62,61 @@ const isUploadingAvatar = ref(false);
 const isBioExpanded = ref(false);
 const expandedProjects = ref<Set<string>>(new Set());
 const visibleProjectsCount = ref(4); // Показываем первые 4 проекта
+const connectionError = ref(false);
+
+// Функция для сжатия изображения с улучшенной обработкой
+const compressImage = async (file: File, maxWidth: number = 1600, maxHeight: number = 1600, quality: number = 0.8): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    // Проверяем размер файла - увеличиваем лимит до 5MB
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error('Размер файла превышает 5MB'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          reject(new Error('Не удалось создать контекст canvas'));
+          return;
+        }
+
+        let width = img.width;
+        let height = img.height;
+
+        // Сохраняем оригинальные пропорции
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        if (ratio < 1) {
+          width = width * ratio;
+          height = height * ratio;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        // Улучшаем качество рендеринга
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        try {
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressedDataUrl);
+        } catch (error) {
+          reject(new Error('Ошибка сжатия изображения'));
+        }
+      };
+      img.onerror = () => reject(new Error('Ошибка загрузки изображения'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Ошибка чтения файла'));
+    reader.readAsDataURL(file);
+  });
+};
 
 const hasMoreProjects = computed(() => {
   return visibleProjectsCount.value < userProjects.value.length;
@@ -126,6 +194,7 @@ const loadProfileData = async () => {
   try {
     isLoading.value = true;
     errorMessage.value = '';
+    connectionError.value = false;
 
     const identifier = userId.value || currentUserId.value;
     if (!identifier) {
@@ -161,9 +230,15 @@ const loadProfileData = async () => {
     } else {
       errorMessage.value = 'Профиль не найден';
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Ошибка загрузки профиля:', error);
-    errorMessage.value = 'Ошибка при загрузке данных';
+
+    if (error.code === 'unavailable' || error.message?.includes('QUIC') || error.message?.includes('network')) {
+      connectionError.value = true;
+      errorMessage.value = 'Проблемы с соединением. Проверьте интернет и попробуйте снова.';
+    } else {
+      errorMessage.value = 'Ошибка при загрузке данных';
+    }
   } finally {
     isLoading.value = false;
   }
@@ -353,20 +428,61 @@ const updateContacts = async () => {
   }
 };
 
-const handleProjectFiles = (event: Event) => {
+const handleProjectFiles = async (event: Event) => {
   const target = event.target as HTMLInputElement;
-  if (target.files && target.files.length > 0) {
+  if (!target.files || target.files.length === 0) return;
+
+  try {
     const files = Array.from(target.files);
-    const maxFiles = 10;
+    const maxFiles = 5;
     const filesToProcess = files.slice(0, maxFiles);
 
-    filesToProcess.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        newProject.value.images.push(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    });
+    // Очищаем предыдущие ошибки
+    errorMessage.value = '';
+
+    for (const file of filesToProcess) {
+      try {
+        // Проверяем тип файла
+        if (!file.type.startsWith('image/')) {
+          throw new Error(`Файл "${file.name}" не является изображением`);
+        }
+
+        // Проверяем размер файла (увеличили лимит до 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error(`Файл "${file.name}" слишком большой (${(file.size / 1024 / 1024).toFixed(1)}MB). Максимум 5MB`);
+        }
+
+        // Сжимаем изображение
+        const compressedImage = await compressImage(file, 1600, 1600, 0.7);
+        newProject.value.images.push(compressedImage);
+
+      } catch (fileError: any) {
+        // Показываем ошибку для конкретного файла в модальном окне
+        showError(
+          'Ошибка загрузки файла',
+          fileError.message,
+          true
+        );
+        // Пропускаем проблемный файл, продолжаем с остальными
+        continue;
+      }
+    }
+
+    // Предупреждение если файлов много
+    if (files.length > maxFiles) {
+      showError(
+        'Внимание',
+        `Загружено только первые ${maxFiles} файлов. Остальные проигнорированы.`,
+        false
+      );
+    }
+
+  } catch (error: any) {
+    showError(
+      'Ошибка загрузки',
+      'Произошла ошибка при обработке файлов: ' + error.message,
+      true
+    );
   }
 };
 
@@ -393,6 +509,19 @@ const addProject = async () => {
       comments: []
     };
 
+    // Проверяем общий размер проекта
+    const projectSize = new Blob([JSON.stringify(projectData)]).size;
+    const maxSize = 900 * 1024; // 900KB с запасом
+
+    if (projectSize > maxSize) {
+      showError(
+        'Слишком большой проект',
+        `Размер проекта превышает лимит Firestore (${(projectSize / 1024 / 1024).toFixed(2)}MB). Удалите некоторые изображения или уменьшите их размер.`,
+        true
+      );
+      return;
+    }
+
     const projectRef = await addDoc(collection(db, 'projects'), projectData);
 
     const userRef = doc(db, 'users', profileData.value.id);
@@ -412,9 +541,22 @@ const addProject = async () => {
       images: []
     };
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Ошибка добавления проекта:', error);
-    errorMessage.value = 'Ошибка при добавлении проекта';
+
+    if (error.code === 'resource-exhausted' || error.message.includes('size')) {
+      showError(
+        'Ошибка размера',
+        'Проект слишком большой для Firestore. Удалите некоторые изображения или уменьшите их размер.',
+        true
+      );
+    } else {
+      showError(
+        'Ошибка добавления',
+        'Не удалось добавить проект: ' + error.message,
+        true
+      );
+    }
   } finally {
     isSavingProject.value = false;
   }
@@ -475,6 +617,11 @@ const editProfile = () => {
   router.push('/profile/edit');
 };
 
+// Функция для возврата назад из модального окна
+const handleModalBack = () => {
+  showErrorModal.value = false;
+};
+
 onMounted(() => {
   loadSpecialties();
   onAuthStateChanged(auth, (user) => {
@@ -488,6 +635,13 @@ onMounted(() => {
 
 <template>
   <Header />
+  <div v-if="connectionError" class="connection-error">
+    <p>Проблемы с соединением</p>
+    <button @click="loadProfileData" class="retry-button">
+      <i class="fas fa-redo"></i> Попробовать снова
+    </button>
+  </div>
+
   <div class="profile-page">
     <div v-if="isLoading" class="loading-overlay">
       <div class="loading-spinner"></div>
@@ -684,9 +838,9 @@ onMounted(() => {
               </div>
 
               <div class="form-group">
-                <label>Изображения проекта (можно выбрать несколько) <span class="required">*</span></label>
-                <input type="file" accept="image/*" multiple @change="handleProjectFiles" class="form-input" required>
-                <small>Максимум 10 изображений. Минимум 1 изображение обязательно</small>
+                <label>Изображения проекта (можно выбрать несколько)</label>
+                <input type="file" accept="image/*" multiple @change="handleProjectFiles" class="form-input">
+                <small>Желательно добовлять не менее 5 файлов. Размер каждого файла до 5MB. Поддерживаются JPG, PNG, GIF, JPEG(Не желательно).</small>
                 <small v-if="newProject.images.length === 0" class="error-text">Необходимо добавить хотя бы одно
                   изображение</small>
               </div>
@@ -713,6 +867,9 @@ onMounted(() => {
                 </button>
               </div>
             </div>
+            <Modal :isVisible="showErrorModal" :title="modalTitle" :message="modalMessage"
+              :showBackButton="modalShowBackButton" @update:isVisible="showErrorModal = $event"
+              @back="handleModalBack" />
 
             <div v-if="activeTab === 'projects'" class="projects-grid">
               <div v-for="(project, index) in visibleProjects" :key="index" class="project-card"
@@ -795,66 +952,4 @@ onMounted(() => {
 </template>
 <style scoped lang="scss">
 @import "./profile.scss";
-
-.load-more-container {
-  display: flex;
-  justify-content: center;
-  margin-top: 2rem;
-  padding: 1rem 0;
-}
-
-.load-more-button {
-  background: linear-gradient(135deg, #4a6cf7 0%, #667eea 100%);
-  color: white;
-  border: none;
-  border-radius: 50px;
-  padding: 1rem 2rem;
-  font-weight: 600;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  box-shadow: 0 4px 15px rgba(74, 108, 247, 0.3);
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(74, 108, 247, 0.4);
-  }
-
-  &:active {
-    transform: translateY(0);
-  }
-
-  .projects-count {
-    font-size: 0.9rem;
-    opacity: 0.9;
-    background: rgba(255, 255, 255, 0.2);
-    padding: 0.3rem 0.8rem;
-    border-radius: 20px;
-    margin-left: 0.5rem;
-  }
-}
-
-/* Адаптивность */
-@media (max-width: 768px) {
-  .load-more-button {
-    padding: 0.9rem 1.5rem;
-    font-size: 0.9rem;
-    
-    .projects-count {
-      font-size: 0.8rem;
-      padding: 0.2rem 0.6rem;
-    }
-  }
-}
-
-@media (max-width: 480px) {
-  .load-more-button {
-    width: 100%;
-    max-width: 280px;
-    justify-content: center;
-  }
-}
 </style>
