@@ -1,20 +1,23 @@
 <script setup lang="ts">
-
 interface Comment {
   id: string;
   projectId: string;
-  author: string;
   authorId: string;
   text: string;
   createdAt: any;
-  name: string;
-  likes: number;
   userName: string;
+  userAvatar: string;
+  likes: number;
+  likedBy: string[];
+  fullName?: string;
+  name?: string;
+  surname?: string;
+  lname?: string;
 }
 
 import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   doc, getDoc, updateDoc, arrayUnion, arrayRemove,
@@ -39,6 +42,9 @@ const userInCart = ref(false)
 const newComment = ref('')
 const comments = ref<Comment[]>([]);
 const userCommentLikes = ref<Set<string>>(new Set())
+const currentImageIndex = ref(0)
+const showImageModal = ref(false)
+const isDescriptionExpanded = ref(false)
 
 // Загрузка данных проекта
 const loadProjectData = async () => {
@@ -71,19 +77,37 @@ const loadUserInteractions = async () => {
   if (!currentUser.value) return
 
   try {
-    const userInteractionsRef = doc(db, 'users', currentUser.value.uid)
+    const userInteractionsRef = doc(db, 'userInteractions', currentUser.value.uid)
     const userInteractionsDoc = await getDoc(userInteractionsRef)
 
     if (userInteractionsDoc.exists()) {
       const data = userInteractionsDoc.data()
+
+      // Проверяем оценку
       userRating.value = data.ratings?.[project.value.id] || 0
+
+      // Дополнительная проверка через массив оцененных проектов
+      const ratedProjects = data.ratedProjects || []
+      if (ratedProjects.includes(project.value.id) && userRating.value === 0) {
+        userRating.value = 1
+      }
+
       userLike.value = data.likes?.includes(project.value.id) || false
       userInCart.value = data.cart?.includes(project.value.id) || false
 
-      // Загружаем лайки комментариев
       if (data.commentLikes) {
         userCommentLikes.value = new Set(data.commentLikes)
       }
+    } else {
+      // Создаем документ, если его нет
+      await setDoc(userInteractionsRef, {
+        userId: currentUser.value.uid,
+        ratings: {},
+        likes: [],
+        cart: [],
+        commentLikes: [],
+        ratedProjects: []
+      })
     }
   } catch (err) {
     console.error('Ошибка загрузки взаимодействий:', err)
@@ -93,80 +117,57 @@ const loadUserInteractions = async () => {
 // Загрузка комментариев
 const loadComments = async () => {
   try {
-    // Временное решение - загружаем все комментарии и фильтруем на клиенте
-    const commentsQuery = query(
-      collection(db, 'comments'),
-      orderBy('createdAt', 'desc')
-    );
+    if (!project.value) return;
 
-    const q = query(collection(db, "comments"), where("projectId", "==", project.value.id));
-    const querySnapshot = await getDocs(commentsQuery);
-
-    // Фильтруем комментарии на стороне клиента
-    comments.value = querySnapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        projectId: data.projectId || '',
-        author: data.author || '',
-        authorId: data.authorId || '',
-        text: data.text || '',
-        createdAt: data.createdAt || null,
-        userName: data.userName || '',
-        name: data.name || '',
-        likes: data.likes || 0,
-      };
-    });
-
-    // Также подписываемся на реальные обновления
-    const unsubscribe = onSnapshot(commentsQuery, (snapshot) => {
-      comments.value = querySnapshot.docs.map(doc => {
+    // Загружаем все комментарии и фильтруем на клиенте
+    const allComments = await getDocs(collection(db, 'comments'));
+    comments.value = allComments.docs
+      .filter(doc => {
         const data = doc.data();
+        return data.projectId === project.value.id;
+      })
+      .map(doc => {
+        const data = doc.data();
+
+        // Приоритет: fullName → сборка из отдельных полей → userName → "Аноним"
+        let displayName = 'Аноним';
+
+        if (data.fullName && data.fullName !== 'Аноним') {
+          displayName = data.fullName;
+        } else if (data.surname || data.name || data.lname) {
+          // Собираем ФИО из отдельных полей
+          displayName = [data.surname, data.name, data.lname].filter(Boolean).join(' ');
+        } else if (data.userName && data.userName !== 'Аноним') {
+          displayName = data.userName;
+        }
+
         return {
           id: doc.id,
-          projectId: data.projectId || '',
-          author: data.author || '',
-          authorId: data.authorId || '',
+          projectId: data.projectId,
+          authorId: data.authorId || data.userId,
           text: data.text || '',
-          createdAt: data.createdAt || null,
-          userName: data.userName || '',
-          name: data.name || '',
+          createdAt: data.createdAt,
+          userName: data.userName || 'Аноним',
+          fullName: displayName, // Используем отформатированное ФИО
+          userAvatar: data.userAvatar || '/logo.png',
           likes: data.likes || 0,
+          likedBy: data.likedBy || []
         };
+      })
+      .sort((a, b) => {
+        // Сортируем по дате (новые сначала)
+        const timeA = a.createdAt?.seconds || a.createdAt?.toDate().getTime() || 0;
+        const timeB = b.createdAt?.seconds || b.createdAt?.toDate().getTime() || 0;
+        return timeB - timeA;
       });
-    });
 
-    return unsubscribe;
   } catch (err) {
     console.error('Ошибка загрузки комментариев:', err);
-
-    const q = query(collection(db, "comments"), where("projectId", "==", project.value.id));
-
-    // Альтернативный вариант - попробовать загрузить без фильтрации
-    try {
-      const querySnapshot = await getDocs(q);
-      comments.value = querySnapshot.docs.map((doc: any) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          projectId: data.projectId || '',
-          author: data.author || '',
-          authorId: data.authorId || '',
-          text: data.text || '',
-          createdAt: data.createdAt || null,
-          userName: data.userName || '',
-          name: data.name || '',
-          likes: data.likes || 0,
-        };
-      });
-    } catch (fallbackErr) {
-      console.error('Ошибка при альтернативной загрузке:', fallbackErr);
-      comments.value = [];
-    }
+    comments.value = [];
   }
 };
 
-// Создание или обновление документа пользовательских взаимодействий
+// Обновление пользовательских взаимодействий
 const updateUserInteractions = async (updates: any) => {
   if (!currentUser.value) return
 
@@ -186,7 +187,6 @@ const rateProject = async (rating: number) => {
     return
   }
 
-  // Если пользователь уже оценил проект, запрещаем изменение
   if (userRating.value > 0) {
     alert('Вы уже оценили этот проект. Изменение оценки невозможно.')
     return
@@ -194,10 +194,24 @@ const rateProject = async (rating: number) => {
 
   try {
     const projectRef = doc(db, 'projects', project.value.id)
+    const userInteractionsRef = doc(db, 'userInteractions', currentUser.value.uid)
+
+    // Дополнительная проверка
+    const userInteractionsDoc = await getDoc(userInteractionsRef)
+    const currentData = userInteractionsDoc.exists() ? userInteractionsDoc.data() : {}
+    const alreadyRated = currentData.ratings?.[project.value.id] > 0 ||
+      currentData.ratedProjects?.includes(project.value.id)
+
+    if (alreadyRated) {
+      alert('Вы уже оценили этот проект.')
+      await loadUserInteractions()
+      return
+    }
 
     // Обновляем взаимодействия пользователя
     await updateUserInteractions({
-      [`ratings.${project.value.id}`]: rating
+      [`ratings.${project.value.id}`]: rating,
+      ratedProjects: arrayUnion(project.value.id)
     })
 
     // Обновляем общий рейтинг проекта
@@ -271,15 +285,19 @@ const toggleCart = async () => {
 
   try {
     if (userInCart.value) {
+      // Удаляем из корзины
       await updateUserInteractions({
         cart: arrayRemove(project.value.id)
       })
       userInCart.value = false
+      alert('Проект удален из корзины')
     } else {
+      // Добавляем в корзину
       await updateUserInteractions({
         cart: arrayUnion(project.value.id)
       })
       userInCart.value = true
+      alert('Проект добавлен в корзину!')
     }
 
   } catch (err) {
@@ -301,47 +319,38 @@ const addComment = async () => {
   }
 
   try {
-    // Получаем данные пользователя из коллекции users
+    // Получаем данные пользователя с ФИО
     let userName = 'Аноним'
+    let userAvatar = '/logo.png'
+    let fullName = ''
 
     try {
       const userDoc = await getDoc(doc(db, 'users', currentUser.value.uid))
-      console.log('Данные пользователя из Firestore:', userDoc.exists() ? userDoc.data() : 'Документ не существует')
-
       if (userDoc.exists()) {
         const userData = userDoc.data()
-        console.log('Все поля пользователя:', Object.keys(userData))
 
-        // Проверяем различные возможные варианты полей
-        if (userData.fullName) {
-          userName = userData.fullName
-        } else if (userData.displayName) {
-          userName = userData.displayName
-        } else if (userData.name && userData.surname) {
-          userName = `${userData.surname} ${userData.name}${userData.lname ? ' ' + userData.lname : ''}`
-        } else if (userData.name) {
-          userName = userData.name
-        } else if (userData.email) {
-          userName = userData.email.split('@')[0] // Используем часть email до @
-        }
+        // Формируем ФИО
+        const surname = userData.surname || ''
+        const name = userData.name || ''
+        const lname = userData.lname || ''
 
-        console.log('Выбранное имя пользователя:', userName)
+        fullName = [surname, name, lname].filter(Boolean).join(' ') || 'Аноним'
+        userName = userData.login || userData.email?.split('@')[0] || fullName || 'Аноним'
+        userAvatar = userData.avatarBase64 || userData.avatarUrl || '/logo.png'
       }
     } catch (userErr) {
       console.error('Ошибка получения данных пользователя:', userErr)
-      // Используем displayName из auth или часть email
-      userName = currentUser.value.displayName ||
-        currentUser.value.email?.split('@')[0] ||
-        'Аноним'
+      userName = currentUser.value.displayName || currentUser.value.email?.split('@')[0] || 'Аноним'
+      fullName = userName
     }
 
-    console.log('Имя для комментария:', userName)
-
+    // Добавляем комментарий со всеми данными
     await addDoc(collection(db, 'comments'), {
       projectId: project.value.id,
       userId: currentUser.value.uid,
       userName: userName,
-      userAvatar: currentUser.value.photoURL || '/placeholder-avatar.png',
+      userAvatar: userAvatar,
+      fullName: fullName, // Сохраняем ФИО
       text: newComment.value.trim(),
       createdAt: serverTimestamp(),
       likes: 0,
@@ -349,8 +358,6 @@ const addComment = async () => {
     })
 
     newComment.value = ''
-
-    // Перезагружаем комментарии
     await loadComments()
 
   } catch (err) {
@@ -360,7 +367,7 @@ const addComment = async () => {
 }
 
 // Лайк комментария
-const toggleCommentLike = async (comment: any) => {
+const toggleCommentLike = async (comment: Comment) => {
   if (!isAuthenticated.value) {
     alert('Для лайка комментариев необходимо авторизоваться')
     return
@@ -400,9 +407,31 @@ const toggleCommentLike = async (comment: any) => {
   }
 }
 
-// Проверка, лайкнул ли пользователь комментарий
+// Проверка лайка комментария
 const isCommentLiked = (commentId: string) => {
   return userCommentLikes.value.has(commentId)
+}
+
+// Навигация по изображениям
+const nextImage = () => {
+  if (project.value.images && project.value.images.length > 0) {
+    currentImageIndex.value = (currentImageIndex.value + 1) % project.value.images.length
+  }
+}
+
+const prevImage = () => {
+  if (project.value.images && project.value.images.length > 0) {
+    currentImageIndex.value = (currentImageIndex.value - 1 + project.value.images.length) % project.value.images.length
+  }
+}
+
+const openImageModal = (index: number) => {
+  currentImageIndex.value = index
+  showImageModal.value = true
+}
+
+const closeImageModal = () => {
+  showImageModal.value = false
 }
 
 // Назад к проектам
@@ -423,9 +452,7 @@ const starRating = computed(() => {
 // Форматирование даты комментария
 const formatCommentDate = (date: any) => {
   if (!date) return 'Дата не указана'
-
   try {
-    // Если date - это объект timestamp Firebase
     if (date && typeof date === 'object' && date.seconds) {
       return new Date(date.seconds * 1000).toLocaleDateString('ru-RU', {
         year: 'numeric',
@@ -435,35 +462,32 @@ const formatCommentDate = (date: any) => {
         minute: '2-digit'
       })
     }
-
-    // Если date - это строка
-    if (typeof date === 'string') {
-      return new Date(date).toLocaleDateString('ru-RU', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }
-
     return 'Дата не указана'
   } catch {
     return 'Дата не указана'
   }
 }
 
+// Загрузка при монтировании
 onMounted(() => {
   onAuthStateChanged(auth, (user) => {
     if (user) {
       currentUser.value = user
       isAuthenticated.value = true
+      loadProjectData()
     } else {
       currentUser.value = null
       isAuthenticated.value = false
+      loadProjectData()
     }
-    loadProjectData()
   })
+})
+
+// Следим за изменениями аутентификации
+watch(isAuthenticated, (newVal) => {
+  if (newVal && project.value) {
+    loadUserInteractions()
+  }
 })
 </script>
 
@@ -527,16 +551,24 @@ onMounted(() => {
         <div class="project-left">
           <!-- Изображения -->
           <div v-if="project.images && project.images.length" class="project-images">
-            <div class="main-image">
-              <img :src="project.images[0]" :alt="project.title">
-            </div>
-            <div v-if="project.images.length > 1" class="image-thumbnails">
-              <div v-for="(image, index) in project.images.slice(0, 4)" :key="index" class="thumbnail"
-                :class="{ active: index === 0 }">
-                <img :src="image" :alt="`${project.title} - изображение ${index + 1}`">
+            <div class="main-image" @click="openImageModal(currentImageIndex)">
+              <img :src="project.images[currentImageIndex]" :alt="project.title">
+
+              <!-- Стрелки навигации (только если больше 1 изображения) -->
+              <div v-if="project.images.length > 1" class="image-navigation">
+                <button @click.stop="prevImage" class="nav-btn prev-btn">←</button>
+                <button @click.stop="nextImage" class="nav-btn next-btn">→</button>
               </div>
-              <div v-if="project.images.length > 4" class="thumbnail more-count">
-                +{{ project.images.length - 4 }}
+
+              <div class="image-counter">
+                {{ currentImageIndex + 1 }} / {{ project.images.length }}
+              </div>
+            </div>
+
+            <div v-if="project.images.length > 1" class="image-thumbnails">
+              <div v-for="(image, index) in project.images" :key="index" class="thumbnail"
+                :class="{ active: index === currentImageIndex }" @click="currentImageIndex = index">
+                <img :src="image" :alt="`${project.title} - изображение ${index + 1}`">
               </div>
             </div>
           </div>
@@ -544,7 +576,17 @@ onMounted(() => {
           <!-- Описание -->
           <div class="project-description">
             <h3>Описание проекта</h3>
-            <p>{{ project.description }}</p>
+            <div class="description-content">
+              <p :class="{ 'description-collapsed': !isDescriptionExpanded && project.description.length > 200 }">
+                {{ isDescriptionExpanded ? project.description : project.description.slice(0, 200) +
+                  (project.description.length > 200 ? '...' : '') }}
+              </p>
+              <div v-if="project.description.length > 200" class="description-toggle">
+                <button @click="isDescriptionExpanded = !isDescriptionExpanded" class="read-more-button">
+                  {{ isDescriptionExpanded ? 'Скрыть' : 'Показать ещё' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -568,14 +610,21 @@ onMounted(() => {
             <div v-if="isAuthenticated" class="rating-input">
               <p class="input-label">Ваша оценка:</p>
               <div class="star-rating">
-                <button v-for="rating in 5" :key="rating" @click="rateProject(rating)"
-                  :class="['star-btn', { active: rating <= userRating, disabled: userRating > 0 }]"
-                  :disabled="userRating > 0">
+                <button v-for="rating in 5" :key="rating" @click="rateProject(rating)" :class="['star-btn', {
+                  active: rating <= userRating,
+                  disabled: userRating > 0
+                }]" :disabled="userRating > 0"
+                  :title="userRating > 0 ? 'Вы уже оценили этот проект' : `Оценить на ${rating} звезд`">
                   {{ rating <= userRating ? '⭐' : '☆' }} </button>
               </div>
+
               <div v-if="userRating > 0" class="rating-info">
                 <span class="success-icon">✅</span>
-                <small>Спасибо за вашу оценку!</small>
+                <small>Вы оценили этот проект на {{ userRating }} звезд. Спасибо!</small>
+              </div>
+
+              <div v-else class="rating-help">
+                <small>Нажмите на звезду для оценки. Оценку можно поставить только один раз.</small>
               </div>
             </div>
             <div v-else class="auth-prompt">
@@ -626,7 +675,7 @@ onMounted(() => {
         <div v-if="isAuthenticated && newComment !== ''" class="comment-form-card">
           <h4>Ваш комментарий</h4>
           <textarea v-model="newComment" placeholder="Поделитесь вашим мнением о проекте..." rows="4"
-            class="comment-input" ref="commentInput"></textarea>
+            class="comment-input"></textarea>
           <div class="comment-actions">
             <button @click="newComment = ''" class="cancel-btn">Отмена</button>
             <button @click="addComment" :disabled="!newComment.trim()"
@@ -643,9 +692,10 @@ onMounted(() => {
         <div v-if="comments.length" class="comments-list">
           <div v-for="comment in comments" :key="comment.id" class="comment-card">
             <div class="comment-header">
-              <img src="../../../public/logo.png" class="comment-avatar">
+              <img :src="comment.userAvatar" :alt="comment.fullName || comment.userName" class="comment-avatar">
               <div class="comment-user">
-                <strong>{{ comment.name }}</strong>
+                <!-- Отображаем ФИО вместо userName -->
+                <strong>{{ comment.fullName || comment.userName }}</strong>
                 <span class="comment-date">
                   {{ formatCommentDate(comment.createdAt) }}
                 </span>
@@ -663,6 +713,19 @@ onMounted(() => {
           <div class="no-comments-icon">💬</div>
           <h4>Пока нет комментариев</h4>
           <p>Будьте первым, кто оставит отзыв об этом проекте!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно для изображений -->
+    <div v-if="showImageModal" class="image-modal" @click="closeImageModal">
+      <div class="modal-content" @click.stop>
+        <button class="modal-close" @click="closeImageModal">X</button>
+        <img :src="project.images[currentImageIndex]" :alt="project.title" class="modal-image">
+        <div class="modal-navigation">
+          <button @click="prevImage" class="modal-nav-btn">←</button>
+          <span class="modal-counter">{{ currentImageIndex + 1 }} / {{ project.images.length }}</span>
+          <button @click="nextImage" class="modal-nav-btn">→</button>
         </div>
       </div>
     </div>

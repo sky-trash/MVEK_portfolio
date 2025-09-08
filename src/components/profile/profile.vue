@@ -63,6 +63,57 @@ const isBioExpanded = ref(false);
 const expandedProjects = ref<Set<string>>(new Set());
 const visibleProjectsCount = ref(4); // Показываем первые 4 проекта
 const connectionError = ref(false);
+const cartItems = ref<any[]>([])
+
+// Функция загрузки корзины
+const loadCartItems = async () => {
+  try {
+    const userInteractionsRef = doc(db, 'userInteractions', currentUserId.value)
+    const userInteractionsDoc = await getDoc(userInteractionsRef)
+
+    if (userInteractionsDoc.exists()) {
+      const cartIds = userInteractionsDoc.data().cart || []
+      console.log('ID проектов в корзине:', cartIds)
+
+      // Загружаем проекты из корзины
+      const itemsPromises = cartIds.map(async (id: string) => {
+        try {
+          const projectDoc = await getDoc(doc(db, 'projects', id))
+          if (projectDoc.exists()) {
+            return { id: projectDoc.id, ...projectDoc.data() }
+          } else {
+            console.warn('Проект не найден:', id)
+            return null
+          }
+        } catch (error) {
+          console.error('Ошибка загрузки проекта:', error, id)
+          return null
+        }
+      })
+
+      const items = await Promise.all(itemsPromises)
+      cartItems.value = items.filter(item => item !== null)
+      console.log('Загруженные проекты корзины:', cartItems.value)
+    } else {
+      console.log('Документ userInteractions не найден')
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки корзины:', error)
+  }
+}
+
+// Удаление из корзины - ИСПРАВЛЕНО!
+const removeFromCart = async (projectId: string) => {
+  try {
+    const userInteractionsRef = doc(db, 'userInteractions', currentUserId.value)
+    await updateDoc(userInteractionsRef, {
+      cart: arrayRemove(projectId)
+    })
+    cartItems.value = cartItems.value.filter(item => item.id !== projectId)
+  } catch (error) {
+    console.error('Ошибка удаления из корзины:', error)
+  }
+}
 
 // Функция для сжатия изображения с улучшенной обработкой
 const compressImage = async (file: File, maxWidth: number = 1600, maxHeight: number = 1600, quality: number = 0.8): Promise<string> => {
@@ -227,6 +278,8 @@ const loadProfileData = async () => {
       };
 
       await loadUserProjects(profileData.value.projectIds);
+    } if (isOwnProfile.value) {
+      await loadCartItems()
     } else {
       errorMessage.value = 'Профиль не найден';
     }
@@ -630,6 +683,9 @@ onMounted(() => {
     }
     loadProfileData();
   });
+  if (isOwnProfile.value) {
+    loadCartItems()
+  }
 });
 </script>
 
@@ -798,6 +854,9 @@ onMounted(() => {
                 class="tab-button">
                 Активность
               </button>
+              <button @click="activeTab = 'cart'" :class="{ 'active': activeTab === 'cart' }" class="tab-button">
+                Корзина ({{ cartItems.length }})
+              </button>
               <button v-if="isOwnProfile" @click="isAddingProject = !isAddingProject" class="add-project-button"
                 :style="{ backgroundColor: isAddingProject ? '#2c5282' : '#3182ce' }">
                 <i class="fas fa-plus"></i>
@@ -840,7 +899,8 @@ onMounted(() => {
               <div class="form-group">
                 <label>Изображения проекта (можно выбрать несколько)</label>
                 <input type="file" accept="image/*" multiple @change="handleProjectFiles" class="form-input">
-                <small>Желательно добовлять не менее 5 файлов. Размер каждого файла до 5MB. Поддерживаются JPG, PNG, GIF, JPEG(Не желательно).</small>
+                <small>Желательно добовлять не менее 5 файлов. Размер каждого файла до 5MB. Поддерживаются JPG, PNG,
+                  GIF, JPEG(Не желательно).</small>
                 <small v-if="newProject.images.length === 0" class="error-text">Необходимо добавить хотя бы одно
                   изображение</small>
               </div>
@@ -941,6 +1001,27 @@ onMounted(() => {
               <div class="empty-state">
                 <i class="fas fa-chart-line"></i>
                 <p>Активность скоро появится</p>
+              </div>
+            </div>
+
+            <!-- В секции контента профиля -->
+            <div v-if="activeTab === 'cart'" class="cart-section">
+              <div v-if="cartItems.length" class="cart-items">
+                <div v-for="item in cartItems" :key="item.id" class="cart-item">
+                  <img :src="item.images[0]" :alt="item.title" class="cart-item-image">
+                  <div class="cart-item-info">
+                    <h4>{{ item.title }}</h4>
+                    <p>{{ item.type }}</p>
+                    <span class="cart-item-author">{{ item.authorName }}</span>
+                  </div>
+                  <button @click="removeFromCart(item.id)" class="remove-from-cart-btn">
+                    🗑️ Удалить
+                  </button>
+                </div>
+              </div>
+              <div v-else class="empty-cart">
+                <i class="fas fa-shopping-cart"></i>
+                <p>Корзина пуста</p>
               </div>
             </div>
           </div>
