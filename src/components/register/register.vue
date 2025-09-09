@@ -27,6 +27,10 @@ const isLoading = ref(false);
 const isDataLoading = ref(true);
 const errorMessage = ref('');
 
+// Состояние видимости паролей
+const showPassword = ref(false);
+const showConfirmPassword = ref(false);
+
 // Списки для выбора
 const groups = ref<string[]>([]);
 const specialties = ref<string[]>([]);
@@ -207,7 +211,7 @@ onMounted(() => {
       <div class="auth-card">
         <div class="auth-header">
           <h1 class="auth-title">Регистрация</h1>
-          <p class="auth-subtitle">Создайте аккаунт для доступа к портфолио</p>
+          <p class="auth-subtitle">Создайте аккаунт для достра к портфолио</p>
         </div>
 
         <form @submit.prevent="handleRegister" class="auth-form">
@@ -265,14 +269,48 @@ onMounted(() => {
           <div class="form-row">
             <div class="form-group">
               <label for="password" class="form-label">Пароль*</label>
-              <input v-model="formData.password" type="password" id="password" class="form-input"
-                placeholder="Не менее 6 символов" required />
+              <div class="password-input-container">
+                <input 
+                  v-model="formData.password" 
+                  :type="showPassword ? 'text' : 'password'" 
+                  id="password" 
+                  class="form-input password-input" 
+                  placeholder="Не менее 6 символов" 
+                  required 
+                />
+                <button 
+                  type="button" 
+                  class="password-toggle"
+                  @click="showPassword = !showPassword"
+                  :title="showPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                >
+                  <span v-if="showPassword">👀</span>
+                  <span v-else>🕶️</span>
+                </button>
+              </div>
             </div>
 
             <div class="form-group">
               <label for="confirmPassword" class="form-label">Подтвердите пароль*</label>
-              <input v-model="formData.confirmPassword" type="password" id="confirmPassword" class="form-input"
-                placeholder="Повторите пароль" required />
+              <div class="password-input-container">
+                <input 
+                  v-model="formData.confirmPassword" 
+                  :type="showConfirmPassword ? 'text' : 'password'" 
+                  id="confirmPassword" 
+                  class="form-input password-input" 
+                  placeholder="Повторите пароль" 
+                  required 
+                />
+                <button 
+                  type="button" 
+                  class="password-toggle"
+                  @click="showConfirmPassword = !showConfirmPassword"
+                  :title="showConfirmPassword ? 'Скрыть пароль' : 'Показать пароль'"
+                >
+                  <span v-if="showConfirmPassword">👀</span>
+                  <span v-else>🕶️</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -350,6 +388,46 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Стили для контейнера пароля */
+.password-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input {
+  padding-right: 45px;
+  width: 100%;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: #6b7280;
+  transition: color 0.3s ease;
+}
+
+.password-toggle:hover {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .password-toggle {
+    right: 8px;
+    padding: 3px;
+  }
+  
+  .password-input {
+    padding-right: 40px;
+  }
+}
 
 .auth-card {
   flex: 1;

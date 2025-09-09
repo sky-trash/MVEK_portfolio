@@ -18,6 +18,8 @@ const formData = ref({
 const isLoading = ref(false);
 const errorMessage = ref('');
 
+const showPassword = ref(false);
+
 // Функция для получения роли пользователя из Firestore
 const getUserRole = async (userId: string) => {
   try {
@@ -26,17 +28,17 @@ const getUserRole = async (userId: string) => {
     if (cachedRole) {
       return cachedRole;
     }
-    
+
     const q = query(collection(db, 'users'), where('userId', '==', userId));
     const querySnapshot = await getDocs(q);
-    
+
     if (!querySnapshot.empty) {
       const userData = querySnapshot.docs[0].data();
       const role = userData.role || 'student';
       localStorage.setItem('userRole', role);
       return role;
     }
-    
+
     return 'student';
   } catch (error) {
     console.error('Error getting user role:', error);
@@ -60,20 +62,20 @@ const handleLogin = async () => {
       formData.value.email,
       formData.value.password
     );
-    
+
     const token = await userCredential.user.getIdToken();
-    
+
     // Сохраняем токен и email
     const storage = formData.value.remember ? localStorage : sessionStorage;
     storage.setItem('authToken', token);
     storage.setItem('userEmail', formData.value.email);
     storage.setItem('userId', userCredential.user.uid);
-    
+
     // Получаем роль пользователя
     const userRole = await getUserRole(userCredential.user.uid);
     storage.setItem('userRole', userRole);
     localStorage.setItem('userRole', userRole);
-    
+
     // Перенаправление в зависимости от роли
     if (userRole === 'admin') {
       router.push('/admin-panel'); // Панель администратора
@@ -84,7 +86,7 @@ const handleLogin = async () => {
     } else {
       router.push('/profile');
     }
-    
+
   } catch (error: any) {
     console.error('Auth error:', error);
     handleAuthError(error);
@@ -131,16 +133,16 @@ onMounted(() => {
         errorMessage.value = 'Пожалуйста, подтвердите вашу электронную почту';
         return;
       }
-      
+
       // Получаем роль и перенаправляем
       const userRole = await getUserRole(user.uid);
       const storage = localStorage.getItem('authToken') ? localStorage : sessionStorage;
       storage.setItem('userRole', userRole);
       localStorage.setItem('userRole', userRole);
-      
+
       // Перенаправление в зависимости от роли
       if (userRole === 'admin') {
-        router.push('/admin-panel'); 
+        router.push('/admin-panel');
       } else if (userRole === 'student') {
         router.push('/profile');
       } else if (userRole === 'teacher') {
@@ -171,35 +173,26 @@ const goToRegister = () => {
         <form @submit.prevent="handleLogin" class="auth-form">
           <div class="form-group">
             <label for="email" class="form-label">Email</label>
-            <input
-              v-model="formData.email"
-              type="email"
-              id="email"
-              class="form-input"
-              placeholder="Ваш email"
-              required
-            />
+            <input v-model="formData.email" type="email" id="email" class="form-input" placeholder="Ваш email"
+              required />
           </div>
 
           <div class="form-group">
             <label for="password" class="form-label">Пароль</label>
-            <input
-              v-model="formData.password"
-              type="password"
-              id="password"
-              class="form-input"
-              placeholder="Ваш пароль"
-              required
-            />
+            <div class="password-input-container">
+              <input v-model="formData.password" :type="showPassword ? 'text' : 'password'" id="password"
+                class="form-input password-input" placeholder="Ваш пароль" required />
+              <button type="button" class="password-toggle" @click="showPassword = !showPassword"
+                :title="showPassword ? 'Скрыть пароль' : 'Показать пароль'">
+                <span v-if="showPassword">👀</span>
+                <span v-else>🕶️</span>
+              </button>
+            </div>
           </div>
 
           <div class="form-options">
             <label class="checkbox-label">
-              <input
-                v-model="formData.remember"
-                type="checkbox"
-                class="checkbox-input"
-              />
+              <input v-model="formData.remember" type="checkbox" class="checkbox-input" />
               <span class="checkbox-custom"></span>
               Запомнить меня
             </label>
@@ -238,4 +231,45 @@ const goToRegister = () => {
 </template>
 <style scoped>
 @import "./auth.scss";
+
+/* Стили для контейнера пароля */
+.password-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input {
+  padding-right: 45px;
+  width: 100%;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: #6b7280;
+  transition: color 0.3s ease;
+}
+
+.password-toggle:hover {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+  .password-toggle {
+    right: 8px;
+    padding: 3px;
+  }
+
+  .password-input {
+    padding-right: 40px;
+  }
+}
 </style>
