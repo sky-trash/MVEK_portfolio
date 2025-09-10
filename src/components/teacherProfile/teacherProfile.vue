@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Header from '../layouts/header/header.vue'
 import Footer from '../layouts/footer/footer.vue'
+import Modal from '../profile/modal.vue'
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ProjectCard from '@/components/projectCard/projectCard.vue'
@@ -65,6 +66,17 @@ const editedBio = ref('')
 const isBioExpanded = ref(false)
 const isUploadingAvatar = ref(false)
 const errorMessage = ref('')
+const showErrorModal = ref(false)
+const modalTitle = ref('')
+const modalMessage = ref('')
+const modalShowBackButton = ref(false)
+
+const showError = (title: string, message: string, showBack: boolean = true) => {
+  modalTitle.value = title;
+  modalMessage.value = message;
+  modalShowBackButton.value = showBack;
+  showErrorModal.value = true;
+};
 
 const formattedRating = computed(() => {
   const rating = teacher.value?.rating || 0;
@@ -75,6 +87,58 @@ const starRating = computed(() => {
   const rating = teacher.value?.rating || 0;
   return Math.round(rating);
 });
+
+// Функция для сжатия изображения
+const compressImage = async (file: File, maxWidth: number = 800, maxHeight: number = 800, quality: number = 0.7): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    // Увеличиваем лимит до 5MB
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error('Размер файла превышает 5MB'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          reject(new Error('Не удалось создать контекст canvas'));
+          return;
+        }
+
+        let width = img.width;
+        let height = img.height;
+
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        if (ratio < 1) {
+          width = width * ratio;
+          height = height * ratio;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        try {
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressedDataUrl);
+        } catch (error) {
+          reject(new Error('Ошибка сжатия изображения'));
+        }
+      };
+      img.onerror = () => reject(new Error('Ошибка загрузки изображения'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Ошибка чтения файла'));
+    reader.readAsDataURL(file);
+  });
+};
 
 // Получаем ID текущего пользователя
 onMounted(() => {
@@ -235,53 +299,73 @@ const fetchTeacherData = async (teacherId: string) => {
   }
 };
 
-// ЗАГРУЗКА АВАТАРА
-const handleAvatarUpload = (event: Event) => {
+// ОБНОВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ АВАТАРА
+const handleAvatarUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement;
   if (!target.files || !target.files[0]) return;
 
   const file = target.files[0];
 
-  // Валидация файла
+  // Проверка типа файла
   if (!file.type.match('image.*')) {
-    errorMessage.value = 'Пожалуйста, выберите изображение (JPEG, PNG, GIF, JPG)';
+    showError(
+      'Неверный формат',
+      'Пожалуйста, выберите изображение (JPEG, PNG, GIF, JPG)',
+      true
+    );
     return;
   }
 
-  if (file.size > 2 * 1024 * 1024) {
-    errorMessage.value = 'Размер файла не должен превышать 2MB';
-    return;
+  // Проверка размера файла (5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    showError(
+      'Слишком большой файл',
+      'Размер файла не должен превышать 5MB',
+      true
+    );
+    return; // ДОБАВЬТЕ ЭТОТ RETURN!
   }
 
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      isUploadingAvatar.value = true;
-      errorMessage.value = '';
+  try {
+    isUploadingAvatar.value = true;
+    errorMessage.value = '';
 
-      // Сохраняем изображение как base64
-      const imageData = e.target?.result as string;
+    // Сжимаем изображение перед загрузкой
+    const compressedImage = await compressImage(file, 800, 800, 0.7);
 
-      // Обновляем данные пользователя в Firestore
-      const userRef = doc(db, 'users', teacher.value!.id);
-      await updateDoc(userRef, {
-        avatarBase64: imageData,
-        updatedAt: new Date().toISOString()
-      });
+    // Обновляем данные пользователя в Firestore
+    const userRef = doc(db, 'users', teacher.value!.id);
+    await updateDoc(userRef, {
+      avatarBase64: compressedImage,
+      updatedAt: new Date().toISOString()
+    });
 
-      // Обновляем локально
-      if (teacher.value) {
-        teacher.value.avatar = imageData;
-      }
-
-    } catch (error) {
-      console.error('Ошибка загрузки аватара:', error);
-      errorMessage.value = 'Ошибка при загрузке аватара';
-    } finally {
-      isUploadingAvatar.value = false;
+    // Обновляем локально
+    if (teacher.value) {
+      teacher.value.avatar = compressedImage;
     }
-  };
-  reader.readAsDataURL(file);
+
+  } catch (error: any) {
+    console.error('Ошибка загрузки аватара:', error);
+
+    if (error.message.includes('Размер файла')) {
+      showError(
+        'Слишком большой файл',
+        error.message,
+        true
+      );
+    } else {
+      showError(
+        'Ошибка загрузки',
+        'Не удалось загрузить аватар: ' + error.message,
+        true
+      );
+    }
+  } finally {
+    isUploadingAvatar.value = false;
+    // Сбрасываем значение input для возможности повторной загрузки того же файла
+    target.value = '';
+  }
 };
 
 // УДАЛЕНИЕ АВАТАРА
@@ -303,7 +387,11 @@ const removeAvatar = async () => {
 
   } catch (error) {
     console.error('Ошибка удаления аватара:', error);
-    errorMessage.value = 'Ошибка при удалении аватара';
+    showError(
+      'Ошибка удаления',
+      'Не удалось удалить аватар: ' + error,
+      true
+    );
   }
 };
 
@@ -331,7 +419,7 @@ const saveProfile = async () => {
     if (teacher.value) {
       teacher.value.bio = editedBio.value;
     }
-    
+
     isEditing.value = false;
     isBioExpanded.value = false;
 
@@ -339,6 +427,10 @@ const saveProfile = async () => {
     console.error('Ошибка сохранения профиля:', error);
     errorMessage.value = 'Ошибка при сохранении данных';
   }
+};
+
+const handleModalBack = () => {
+  showErrorModal.value = false;
 };
 
 onMounted(async () => {
@@ -392,6 +484,14 @@ const editProfile = () => {
 <template>
   <Header />
   <div class="teacher-profile-container">
+        <Modal 
+      :isVisible="showErrorModal" 
+      :title="modalTitle" 
+      :message="modalMessage"
+      :showBackButton="modalShowBackButton" 
+      @update:isVisible="showErrorModal = $event"
+      @back="handleModalBack" 
+    />
     <div v-if="loading" class="loading-spinner">
       <div class="spinner"></div>
     </div>
@@ -502,7 +602,7 @@ const editProfile = () => {
         </section>
 
         <!-- Курируемые группы -->
-        <section class="groups-section" v-if="teacher.groups && teacher.groups.length > 0">
+        <!-- <section class="groups-section" v-if="teacher.groups && teacher.groups.length > 0">
           <h2>Курируемые группы</h2>
           <div class="groups-grid">
             <router-link v-for="group in teacher.groups" :key="group.id" :to="`/students?group=${group.id}`"
@@ -511,7 +611,7 @@ const editProfile = () => {
               <span class="student-count">{{ group.studentCount }} студентов</span>
             </router-link>
           </div>
-        </section>
+        </section> -->
 
         <!-- Студенческие проекты -->
         <section class="projects-section" v-if="teacher.projects && teacher.projects.length > 0">

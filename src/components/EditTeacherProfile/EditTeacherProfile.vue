@@ -340,7 +340,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="form-section">
+          <!-- <div class="form-section">
             <h2>Кураторство групп</h2>
 
             <div class="form-group">
@@ -371,7 +371,7 @@ onMounted(() => {
                 </div>
               </div>
             </div>
-          </div>
+          </div> -->
 
           <div class="form-section">
             <h2>О себе</h2>

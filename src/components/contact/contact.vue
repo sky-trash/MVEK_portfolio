@@ -58,7 +58,7 @@ const handleSubmit = async () => {
 
     isSubmitted.value = true;
     formData.value = { name: '', email: '', message: '', subject: 'Общий вопрос' };
-    
+
   } catch (error) {
     console.error('Ошибка при сохранении формы:', error);
     errorMessage.value = 'Ошибка при отправке формы. Попробуйте позже.';
@@ -69,7 +69,7 @@ const handleSubmit = async () => {
 </script>
 
 <template>
-  <Header/>
+  <Header />
   <main class="contacts-page">
     <div class="container">
       <section class="page-header">
@@ -80,7 +80,7 @@ const handleSubmit = async () => {
       <div class="contacts-content">
         <div class="contact-info-section">
           <h2><i class="fas fa-info-circle"></i> Контактная информация</h2>
-          
+
           <div class="contact-method">
             <div class="icon-wrapper">
               <i class="fas fa-map-marker-alt">📍</i>
@@ -97,7 +97,7 @@ const handleSubmit = async () => {
             </div>
             <div>
               <h3>Телефон</h3>
-              <p>+7 (495) 123-45-67</p>
+              <p>+7 (3412) 91-81-18</p>
             </div>
           </div>
 
@@ -107,7 +107,7 @@ const handleSubmit = async () => {
             </div>
             <div>
               <h3>Email</h3>
-              <p>info@mvek-portfolio.ru</p>
+              <p>pk@mveu.ru</p>
             </div>
           </div>
 
@@ -125,9 +125,20 @@ const handleSubmit = async () => {
           <div class="social-media">
             <h3>Мы в соцсетях</h3>
             <div class="social-icons">
-              <a href="#" aria-label="ВКонтакте"><i class="fab fa-vk"></i></a>
-              <a href="#" aria-label="Telegram"><i class="fab fa-telegram"></i></a>
-              <a href="#" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
+              <a href="https://vk.com/mveu_ru" class="social-icon" aria-label="ВКонтакте">
+                <!-- <i class="icon-vk"></i> -->
+                <svg class="vk-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path
+                    d="M13.162 18.994c.609 0 .858-.406.851-.915-.031-1.917.714-2.949 2.059-1.604 1.488 1.488 1.796 2.519 3.603 2.519h3.2c.808 0 1.126-.26 1.126-.668 0-.863-1.421-2.386-2.625-3.504-1.686-1.565-1.765-1.602-.313-3.486 1.801-2.339 4.157-5.336 2.073-5.336h-3.981c-.772 0-.828.435-1.103 1.083-.995 2.347-2.886 5.387-3.604 4.922-.751-.485-.407-2.406-.35-5.261.015-.754.011-1.271-1.141-1.539-.629-.145-1.241-.205-1.809-.205-2.273 0-3.841.953-2.95 1.119 1.571.293 1.42 3.692 1.054 5.16-.638 2.556-3.036-2.024-4.035-4.305-.241-.548-.315-.974-1.175-.974h-3.255c-.492 0-.787.16-.787.516 0 .602 2.96 6.72 5.786 9.77 2.756 2.975 5.48 2.708 7.376 2.708z" />
+                </svg>
+              </a>
+              <a href="https://vk.com/kkizh_ru" class="social-icon" aria-label="ВКонтакте">
+                <!-- <i class="icon-vk"></i> -->
+                <svg class="vk-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path
+                    d="M13.162 18.994c.609 0 .858-.406.851-.915-.031-1.917.714-2.949 2.059-1.604 1.488 1.488 1.796 2.519 3.603 2.519h3.2c.808 0 1.126-.26 1.126-.668 0-.863-1.421-2.386-2.625-3.504-1.686-1.565-1.765-1.602-.313-3.486 1.801-2.339 4.157-5.336 2.073-5.336h-3.981c-.772 0-.828.435-1.103 1.083-.995 2.347-2.886 5.387-3.604 4.922-.751-.485-.407-2.406-.35-5.261.015-.754.011-1.271-1.141-1.539-.629-.145-1.241-.205-1.809-.205-2.273 0-3.841.953-2.95 1.119 1.571.293 1.42 3.692 1.054 5.16-.638 2.556-3.036-2.024-4.035-4.305-.241-.548-.315-.974-1.175-.974h-3.255c-.492 0-.787.16-.787.516 0 .602 2.96 6.72 5.786 9.77 2.756 2.975 5.48 2.708 7.376 2.708z" />
+                </svg>
+              </a>
             </div>
           </div>
         </div>
@@ -135,18 +146,14 @@ const handleSubmit = async () => {
         <div class="map-section">
           <h2><i class="fas fa-map-marked-alt"></i> Как нас найти</h2>
           <div class="map-container">
-            <iframe 
-              src="https://yandex.ru/map-widget/v1/?um=constructor%3A1a2b3c4d5e6f7g8h9i0j&amp;source=constructor"
-              frameborder="0"
-              class="map-iframe"
-              aria-label="Карта расположения"
-            ></iframe>
+            <iframe src="https://yandex.ru/map-widget/v1/?um=constructor%3A1a2b3c4d5e6f7g8h9i0j&amp;source=constructor"
+              frameborder="0" class="map-iframe" aria-label="Карта расположения"></iframe>
           </div>
         </div>
 
         <div class="contact-form-section">
           <h2><i class="fas fa-paper-plane"></i> Форма обратной связи</h2>
-          
+
           <div v-if="isSubmitted" class="success-message">
             <i class="fas fa-check-circle"></i>
             <p>Спасибо! Ваше сообщение отправлено. Мы свяжемся с вами в ближайшее время.</p>
@@ -158,24 +165,12 @@ const handleSubmit = async () => {
           <form v-else @submit.prevent="handleSubmit" class="feedback-form">
             <div class="form-group">
               <label for="name">Ваше имя*</label>
-              <input
-                v-model="formData.name"
-                type="text"
-                id="name"
-                placeholder="Иванов Иван"
-                required
-              >
+              <input v-model="formData.name" type="text" id="name" placeholder="Иванов Иван" required>
             </div>
 
             <div class="form-group">
               <label for="email">Email*</label>
-              <input
-                v-model="formData.email"
-                type="email"
-                id="email"
-                placeholder="example@mail.ru"
-                required
-              >
+              <input v-model="formData.email" type="email" id="email" placeholder="example@mail.ru" required>
             </div>
 
             <div class="form-group">
@@ -189,13 +184,8 @@ const handleSubmit = async () => {
 
             <div class="form-group">
               <label for="message">Сообщение*</label>
-              <textarea
-                v-model="formData.message"
-                id="message"
-                rows="5"
-                placeholder="Ваше сообщение..."
-                required
-              ></textarea>
+              <textarea v-model="formData.message" id="message" rows="5" placeholder="Ваше сообщение..."
+                required></textarea>
             </div>
 
             <div v-if="errorMessage" class="error-message">
@@ -212,7 +202,7 @@ const handleSubmit = async () => {
       </div>
     </div>
   </main>
-  <Footer/>
+  <Footer />
 </template>
 
 <style scoped>
@@ -334,7 +324,7 @@ const handleSubmit = async () => {
     grid-template-columns: 1fr;
     gap: 1.5rem;
   }
-  
+
   .feedback-form {
     padding: 1.5rem;
   }

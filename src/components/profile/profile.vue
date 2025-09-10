@@ -61,7 +61,7 @@ const isSavingProject = ref(false);
 const isUploadingAvatar = ref(false);
 const isBioExpanded = ref(false);
 const expandedProjects = ref<Set<string>>(new Set());
-const visibleProjectsCount = ref(4); // Показываем первые 4 проекта
+const visibleProjectsCount = ref(4);
 const connectionError = ref(false);
 const cartItems = ref<any[]>([])
 
@@ -75,7 +75,6 @@ const loadCartItems = async () => {
       const cartIds = userInteractionsDoc.data().cart || []
       console.log('ID проектов в корзине:', cartIds)
 
-      // Загружаем проекты из корзины
       const itemsPromises = cartIds.map(async (id: string) => {
         try {
           const projectDoc = await getDoc(doc(db, 'projects', id))
@@ -102,7 +101,7 @@ const loadCartItems = async () => {
   }
 }
 
-// Удаление из корзины - ИСПРАВЛЕНО!
+// Удаление из корзины
 const removeFromCart = async (projectId: string) => {
   try {
     const userInteractionsRef = doc(db, 'userInteractions', currentUserId.value)
@@ -115,10 +114,10 @@ const removeFromCart = async (projectId: string) => {
   }
 }
 
-// Функция для сжатия изображения с улучшенной обработкой
+// Функция для сжатия изображения
 const compressImage = async (file: File, maxWidth: number = 1600, maxHeight: number = 1600, quality: number = 0.8): Promise<string> => {
   return new Promise((resolve, reject) => {
-    // Проверяем размер файла - увеличиваем лимит до 5MB
+    // Увеличиваем лимит до 5MB для аватара
     if (file.size > 5 * 1024 * 1024) {
       reject(new Error('Размер файла превышает 5MB'));
       return;
@@ -139,7 +138,6 @@ const compressImage = async (file: File, maxWidth: number = 1600, maxHeight: num
         let width = img.width;
         let height = img.height;
 
-        // Сохраняем оригинальные пропорции
         const ratio = Math.min(maxWidth / width, maxHeight / height);
         if (ratio < 1) {
           width = width * ratio;
@@ -149,7 +147,6 @@ const compressImage = async (file: File, maxWidth: number = 1600, maxHeight: num
         canvas.width = width;
         canvas.height = height;
 
-        // Улучшаем качество рендеринга
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
@@ -322,47 +319,70 @@ const loadUserProjects = async (projectIds: string[]) => {
   }
 };
 
-const handleAvatarUpload = (event: Event) => {
+// ОБНОВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ АВАТАРА
+const handleAvatarUpload = async (event: Event) => {
   const target = event.target as HTMLInputElement;
   if (!target.files || !target.files[0]) return;
 
   const file = target.files[0];
 
+  // Проверка типа файла
   if (!file.type.match('image.*')) {
-    errorMessage.value = 'Пожалуйста, выберите изображение (JPEG, PNG, GIF, JPG)';
+    showError(
+      'Неверный формат',
+      'Пожалуйста, выберите изображение (JPEG, PNG, GIF, JPG)',
+      true
+    );
     return;
   }
 
-  if (file.size > 2 * 1024 * 1024) {
-    errorMessage.value = 'Размер файла не должен превышать 2MB';
+  // Проверка размера файла (5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    showError(
+      'Слишком большой файл',
+      'Размер файла не должен превышать 5MB',
+      true
+    );
     return;
   }
 
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-    try {
-      isUploadingAvatar.value = true;
-      errorMessage.value = '';
+  try {
+    isUploadingAvatar.value = true;
+    errorMessage.value = '';
 
-      const imageData = e.target?.result as string;
+    // Сжимаем изображение перед загрузкой
+    const compressedImage = await compressImage(file, 800, 800, 0.7);
 
-      const userRef = doc(db, 'users', profileData.value.id);
-      await updateDoc(userRef, {
-        avatarBase64: imageData,
-        updatedAt: new Date().toISOString()
-      });
+    const userRef = doc(db, 'users', profileData.value.id);
+    await updateDoc(userRef, {
+      avatarBase64: compressedImage,
+      updatedAt: new Date().toISOString()
+    });
 
-      // Обновляем локально
-      profileData.value.avatar = imageData;
+    // Обновляем локально
+    profileData.value.avatar = compressedImage;
 
-    } catch (error) {
-      console.error('Ошибка загрузки аватара:', error);
-      errorMessage.value = 'Ошибка при загрузке аватара';
-    } finally {
-      isUploadingAvatar.value = false;
+  } catch (error: any) {
+    console.error('Ошибка загрузки аватара:', error);
+
+    if (error.message.includes('Размер файла')) {
+      showError(
+        'Слишком большой файл',
+        error.message,
+        true
+      );
+    } else {
+      showError(
+        'Ошибка загрузки',
+        'Не удалось загрузить аватар: ' + error.message,
+        true
+      );
     }
-  };
-  reader.readAsDataURL(file);
+  } finally {
+    isUploadingAvatar.value = false;
+    // Сбрасываем значение input для возможности повторной загрузки того же файла
+    target.value = '';
+  }
 };
 
 const removeAvatar = async () => {
@@ -380,7 +400,11 @@ const removeAvatar = async () => {
 
   } catch (error) {
     console.error('Ошибка удаления аватара:', error);
-    errorMessage.value = 'Ошибка при удалении аватара';
+    showError(
+      'Ошибка удаления',
+      'Не удалось удалить аватар: ' + error,
+      true
+    );
   }
 };
 
@@ -500,7 +524,7 @@ const handleProjectFiles = async (event: Event) => {
           throw new Error(`Файл "${file.name}" не является изображением`);
         }
 
-        // Проверяем размер файла (увеличили лимит до 5MB)
+        // Проверяем размер файла (5MB)
         if (file.size > 5 * 1024 * 1024) {
           throw new Error(`Файл "${file.name}" слишком большой (${(file.size / 1024 / 1024).toFixed(1)}MB). Максимум 5MB`);
         }
